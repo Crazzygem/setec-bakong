@@ -45,22 +45,47 @@ export function Field({
   hint,
   error,
   id,
+  prefix,
   className = "",
   ...input
-}: ComponentProps<"input"> & { label: string; hint?: string; error?: string | null; id: string }) {
+}: ComponentProps<"input"> & {
+  label: string;
+  hint?: string;
+  error?: string | null;
+  id: string;
+  /** Currency or unit marker drawn inside the field, e.g. "$" or "៛". */
+  prefix?: string;
+}) {
   const describedBy = [hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(" ") || undefined;
+  const control = (
+    <input
+      id={id}
+      aria-invalid={!!error || undefined}
+      aria-describedby={describedBy}
+      className={`mt-1 block h-14 w-full rounded-sm border bg-canvas text-base text-ink placeholder:text-muted focus:border-2 focus:outline-none aria-invalid:border-error ${
+        prefix ? "pl-9 pr-3 focus:pl-[35px]" : "px-3 focus:px-[11px]"
+      } ${error ? "border-error" : "border-field focus:border-ink"}`}
+      {...input}
+    />
+  );
   return (
     <div className={className}>
       <label htmlFor={id} className="block text-sm font-medium text-muted">
         {label}
       </label>
-      <input
-        id={id}
-        aria-invalid={!!error || undefined}
-        aria-describedby={describedBy}
-        className="mt-1 block h-14 w-full rounded-sm border border-field bg-canvas px-3 text-base text-ink placeholder:text-muted focus:border-2 focus:border-ink focus:px-[11px] focus:outline-none aria-invalid:border-error"
-        {...input}
-      />
+      {prefix ? (
+        <div className="relative">
+          <span
+            aria-hidden
+            className="pointer-events-none absolute top-1 left-3 z-10 flex h-12 items-center text-base text-muted"
+          >
+            {prefix}
+          </span>
+          {control}
+        </div>
+      ) : (
+        control
+      )}
       {hint && (
         <p id={`${id}-hint`} className="mt-1 text-sm text-muted">
           {hint}
@@ -105,10 +130,10 @@ export function Modal({
         // Clicks land on the dialog itself only when they hit the backdrop.
         if (e.target === ref.current) onClose();
       }}
-      className="m-auto w-[min(560px,calc(100vw-32px))] rounded-md border border-hairline bg-canvas p-0 shadow-float backdrop:bg-black/50"
+      className="m-auto max-h-[calc(100dvh-32px)] w-[min(560px,calc(100vw-32px))] overflow-hidden rounded-md border border-hairline bg-canvas p-0 shadow-float backdrop:bg-black/50"
     >
-      <div className="flex max-h-[85dvh] flex-col">
-        <div className="flex items-start justify-between gap-4 border-b border-hairline-soft px-5 py-4">
+      <div className="flex max-h-[calc(100dvh-32px)] flex-col">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-hairline-soft px-5 py-4">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button
             type="button"
@@ -120,6 +145,7 @@ export function Modal({
           </button>
         </div>
         <div className="overflow-y-auto px-5 py-5">{children}</div>
+        {/* Clicking the padding outside the dialog box closes it, same as the scrim. */}
       </div>
     </dialog>
   );

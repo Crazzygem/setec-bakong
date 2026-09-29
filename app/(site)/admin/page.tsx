@@ -126,24 +126,25 @@ function PhotoField({
   }
 
   return (
-    <div className="md:col-span-2 lg:col-span-4">
+    <div className="col-span-full">
       <p className="text-sm font-medium text-muted">{label}</p>
-      <div className="mt-1 flex items-start gap-4">
+      <div className="mt-1 flex flex-wrap items-center gap-4 rounded-sm border border-hairline-soft p-3">
         <div
-          className={`grid shrink-0 place-items-center overflow-hidden rounded-sm border border-hairline bg-surface-soft ${
-            shape === "square" ? "h-24 w-24" : "h-20 w-28"
+          className={`grid shrink-0 place-items-center overflow-hidden rounded-sm bg-surface-strong ${
+            shape === "square" ? "h-20 w-20" : "h-20 w-28"
           }`}
         >
           {imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={imageUrl} alt="" className="h-full w-full object-cover" />
           ) : (
-            <span className="px-2 text-center text-xs text-muted">
+            <span className="px-2 text-center text-xs leading-tight text-muted">
               No photo
             </span>
           )}
         </div>
-        <div className="flex flex-col items-start gap-2">
+        {/* self-stretch so justify-center has the tile's height to work against. */}
+        <div className="flex min-w-[15rem] flex-1 self-stretch flex-col justify-center gap-2">
           <input
             ref={input}
             id={id}
@@ -156,32 +157,36 @@ function PhotoField({
               if (file) upload(file);
             }}
           />
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => input.current?.click()}
-            disabled={busy}
-          >
-            {busy ? "Uploading…" : imageUrl ? "Replace photo" : "Choose photo"}
-          </Button>
-          {imageUrl && (
+          {/* Buttons sit in one row so the block keeps a single predictable height. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <Button
               type="button"
-              variant="tertiary"
+              variant="secondary"
               size="sm"
-              onClick={() => onChange(null)}
+              onClick={() => input.current?.click()}
               disabled={busy}
             >
-              Remove photo
+              {busy ? "Uploading…" : imageUrl ? "Replace photo" : "Choose photo"}
             </Button>
-          )}
-          <p className="text-sm text-muted">
-            JPEG, PNG, WebP or GIF, up to 4 MB.
-          </p>
-          {error && (
+            {imageUrl && (
+              <Button
+                type="button"
+                variant="tertiary"
+                size="sm"
+                onClick={() => onChange(null)}
+                disabled={busy}
+              >
+                Remove photo
+              </Button>
+            )}
+          </div>
+          {error ? (
             <p role="alert" className="text-sm text-error">
               {error}
+            </p>
+          ) : (
+            <p className="text-sm text-muted">
+              JPEG, PNG, WebP or GIF, up to 4 MB.
             </p>
           )}
         </div>
@@ -258,7 +263,7 @@ function RoomDialog({
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-4 md:grid-cols-2" noValidate>
+    <form onSubmit={submit} className="grid gap-x-4 gap-y-5 sm:grid-cols-2" noValidate>
       {!room && (
         <Field
           id={`${prefix}-code`}
@@ -279,7 +284,8 @@ function RoomDialog({
       />
       <Field
         id={`${prefix}-rate`}
-        label={`Rate per hour (${currency})`}
+        label="Rate per hour"
+        prefix={input.prefix}
         inputMode="decimal"
         type="number"
         min={input.min}
@@ -307,11 +313,11 @@ function RoomDialog({
         shape="wide"
       />
       {error && (
-        <div className="md:col-span-2">
+        <div className="col-span-full">
           <Notice tone="error">{error}</Notice>
         </div>
       )}
-      <div className="flex flex-wrap gap-3 md:col-span-2">
+      <div className="col-span-full flex flex-wrap gap-3 border-t border-hairline-soft pt-4">
         <Button type="submit" disabled={busy}>
           {room ? "Save room" : "Add room"}
         </Button>
@@ -369,7 +375,7 @@ function MenuDialog({
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-4 md:grid-cols-2" noValidate>
+    <form onSubmit={submit} className="grid gap-x-4 gap-y-5 sm:grid-cols-2" noValidate>
       <Field
         id={`${prefix}-name`}
         label="Item"
@@ -379,7 +385,8 @@ function MenuDialog({
       />
       <Field
         id={`${prefix}-price`}
-        label={`Price (${currency})`}
+        label="Price"
+        prefix={input.prefix}
         type="number"
         inputMode="decimal"
         min={input.min}
@@ -395,24 +402,24 @@ function MenuDialog({
         onChange={setImageUrl}
       />
       {item && (
-        <div className="md:col-span-2">
-          <label className="flex min-h-12 items-center gap-3">
+        <div className="col-span-full">
+          <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-sm border border-hairline-soft bg-surface-soft px-4">
             <input
               type="checkbox"
               checked={available}
               onChange={(e) => setAvailable(e.target.checked)}
-              className="h-5 w-5 rounded-sm border border-field accent-primary-fill"
+              className="h-5 w-5 shrink-0 rounded-sm border border-field accent-primary-fill"
             />
             <span className="text-body">Show this item to guests</span>
           </label>
         </div>
       )}
       {error && (
-        <div className="md:col-span-2">
+        <div className="col-span-full">
           <Notice tone="error">{error}</Notice>
         </div>
       )}
-      <div className="flex flex-wrap gap-3 md:col-span-2">
+      <div className="col-span-full flex flex-wrap gap-3 border-t border-hairline-soft pt-4">
         <Button type="submit" disabled={busy}>
           {item ? "Save item" : "Add item"}
         </Button>
