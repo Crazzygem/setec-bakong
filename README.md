@@ -53,20 +53,27 @@ once at 4,000 riel to the dollar, and the invoice records the currency it was ch
 The price is always rounded up, and a riel price is always a whole 100, so ៛3,300 bills as
 $0.83 and $0.83 bills as ៛3,400. Rounding up means the shop is never short.
 
-This only works if the settlement account takes both currencies. ACLEDA marks dual-currency
-accounts with tag `39` set to `2CCY`, and the bank then routes by whatever the guest pays
-in. The app logs the account's capability at boot, and refuses a bill in a currency the
+This only works if the settlement account takes both currencies. A Bakong wallet holds both
+KHR and USD, and each bill's tag `53` picks which one is credited. The wallet's QR names
+only KHR, so list the currencies in `MERCHANT_KHQR_CURRENCIES=KHR,USD`. (A bank QR that
+marks its own dual-currency account, such as ACLEDA's tag `39` `2CCY`, needs no setting.)
+The app logs the account's capability at boot, and refuses a bill in a currency the
 account cannot take rather than producing a QR that will not scan.
 
 ## KHQR generation
 
 The QR for an invoice can be built two ways, and `MERCHANT_KHQR_SOURCE` decides which:
 
-1. **Copy your bank's static QR.** Paste the receive-money QR string from ACLEDA mobile
-   under My KHQR into `MERCHANT_KHQR_SOURCE`. `lib/emv.ts` rewrites only the amount
-   (tag 54), bill number (tag 26), expiry and CRC tags, leaving every account tag the
-   bank routes on byte for byte. This is the reliable path, because the bank already
-   accepted that exact string.
+1. **Copy a Bakong wallet's static QR.** Paste the receive-money QR string of your Bakong
+   account (Bakong app, or a bank app's Bakong QR whose ID looks like `name@bkrt`) into
+   `MERCHANT_KHQR_SOURCE`. `lib/emv.ts` rewrites only the amount, currency, bill number,
+   expiry and CRC tags, leaving every account tag byte for byte. Money is credited to that
+   Bakong wallet, and every bank app can pay it. The bare Bakong ID is the only account
+   form that ABA, Wing and ACLEDA all opened in testing.
+
+   A bank's own QR (ACLEDA's `khqr@aclb` plus an account number and bank name) opens in
+   that bank's app and was rejected as an invalid QR by ABA. It routes inside the issuing
+   bank, so use it only if guests all use that bank.
 2. **Build it from fields.** Without `MERCHANT_KHQR_SOURCE`, the merchant fields build the
    QR through NBC's official SDK. A bank app rejects this if the layout does not match how
    that bank registered the account, so use `/admin/khqr-test` to compare variants and
@@ -75,7 +82,8 @@ The QR for an invoice can be built two ways, and `MERCHANT_KHQR_SOURCE` decides 
 Two details worth knowing before you debug a QR that will not scan:
 
 - Tag 29 is an individual account, tag 30 is a merchant ID. A shared ID such as
-  `khqr@aclb` may be registered either way, so `MERCHANT_KHQR_LAYOUT` matters.
+  `khqr@aclb` may be registered either way, so `MERCHANT_KHQR_LAYOUT` matters (field
+  path only).
 - `SHOP_CURRENCY` must match what the receiving bank account accepts. A USD-only account
   rejects a KHR QR at account inquiry, which looks like a scan failure but is not.
 
