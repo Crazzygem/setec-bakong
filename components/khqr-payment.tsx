@@ -45,27 +45,28 @@ async function savePng(svgDataUri: string, filename: string) {
 }
 
 /**
- * One dynamic KHQR invoice: shows the QR, counts down, polls /check until it
- * settles, then reports the final status. Key it by invoiceId so timers reset.
+ * One dynamic KHQR invoice: shows the QR, counts down, and polls /check (local status,
+ * no Bakong call) until staff approve the payment or it expires. Key it by invoiceId so
+ * timers reset.
  */
 export function KhqrPayment({
   invoiceId,
   onSettled,
   onCancel,
   showSave = false,
+  canApprove = false,
 }: {
   invoiceId: string;
   onSettled?: (status: Exclude<InvoiceStatus, "PENDING">) => void;
   onCancel?: () => void;
   /** For a customer paying on the same phone that shows the QR. */
   showSave?: boolean;
+  /** Staff only: shows the button that confirms the money arrived. */
+  canApprove?: boolean;
 }) {
   const [inv, setInv] = useState<Invoice | null>(null);
-  const [live, setLive] = useState(true);
-  const [canSimulate, setCanSimulate] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const settledRef = useRef(onSettled);
   const firedRef = useRef(false);
@@ -90,8 +91,6 @@ export function KhqrPayment({
       }
       const data = await res.json();
       setInv(data.invoice);
-      setLive(data.live);
-      setCanSimulate(data.canSimulate);
       applyStatus(data.invoice.status);
     } catch {
       setError("No connection to the server. Check the network and refresh.");
@@ -111,7 +110,6 @@ export function KhqrPayment({
       const res = await fetch(`/api/invoices/${encodeURIComponent(invoiceId)}/check`).catch(() => null);
       if (!res?.ok) return;
       const data = await res.json();
-      setWarning(data.warning ?? null);
       applyStatus(data.status);
     }, POLL_MS);
     return () => {
@@ -130,7 +128,7 @@ export function KhqrPayment({
     }
   }, [inv]);
 
-  async function post(path: "simulate" | "cancel") {
+  async function post(path: "approve" | "cancel") {
     setBusy(true);
     setError(null);
     try {
@@ -190,17 +188,13 @@ export function KhqrPayment({
         <span className={`font-semibold tabular-nums ${left < 60_000 ? "text-error" : "text-ink"}`}>{mmss(left)}</span>
       </p>
       <p className="mt-1 text-center text-sm text-muted">
-        {live ? "This screen updates by itself once the bank confirms." : "No Bakong token is set, so payments are not checked live."}
+        {canApprove
+          ? "Check the payment in the Bakong app, then confirm it below."
+          : "This screen updates once the shop confirms your payment."}
       </p>
       {error && (
         <p role="alert" className="mt-3 text-sm text-error">
           {error}
-        </p>
-      )}
-      {warning && (
-        <p role="status" className="mt-3 max-w-[320px] rounded-sm border border-error px-3 py-2 text-center text-sm text-error">
-          {warning}
-          {canSimulate ? " Confirm the payment in the receiving bank app, then use Mark paid." : ""}
         </p>
       )}
       <div className="mt-5 flex w-full max-w-[320px] flex-col gap-2">
@@ -217,20 +211,15 @@ export function KhqrPayment({
             Cancel this QR
           </Button>
         )}
-        {canSimulate && (
+        {canApprove && (
           <Button
-            variant="tertiary"
-            onClick={() => post("simulate")}
+            onClick={() => {
+              if (window.confirm(`Confirm you received ${amount} in the Bakong app?`)) post("approve");
+            }}
             disabled={busy}
-            aria-describedby={`sim-${inv.id}`}
           >
-            Mark paid (demo)
+            Confirm payment received
           </Button>
-        )}
-        {canSimulate && (
-          <p id={`sim-${inv.id}`} className="text-center text-xs text-muted">
-            Demo only: no money moves. Turn off with SIMULATE_PAYMENTS=false.
-          </p>
         )}
       </div>
     </div>

@@ -732,6 +732,7 @@ function BillPanel({
             invoiceId={checkout.invoiceId}
             onSettled={onSettled}
             onCancel={onCancel}
+            canApprove
           />
         </div>
         {checkout.kind === "settled" && (

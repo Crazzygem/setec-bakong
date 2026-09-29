@@ -12,7 +12,7 @@ import {
 import { generateInvoiceQR, sourceAcceptsCurrency, INVOICE_TTL_MS } from "@/lib/bakong";
 import { isCurrency, toBillAmount } from "@/lib/money";
 import { shopCurrency } from "@/lib/shop";
-import { invoiceJson, settleIfPaid } from "@/lib/payments";
+import { invoiceJson } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +27,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const existing = pendingInvoiceFor(bookingId);
   if (existing) {
     if (existing.expires_at > Date.now()) return NextResponse.json({ invoice: invoiceJson(existing) });
-    // A late payment settles instead of being billed twice.
-    if (!(await settleIfPaid(existing, { force: true }))) markInvoiceExpired(existing.id);
+    markInvoiceExpired(existing.id);
   }
 
   const lines = unbilledLines(bookingId);

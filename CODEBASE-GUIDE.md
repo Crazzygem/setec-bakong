@@ -19,8 +19,9 @@ Memorise this. It answers "explain your project" on its own.
 > The project has six library files in `lib/`. The one that matters is
 > `lib/emv.ts`, which rewrites five EMV tags inside the bank's static QR to turn
 > it into a dynamic bill, so every account tag the bank routes on is preserved.
-> `lib/payments.ts` throttles Bakong's md5 checks, because the API allows only
-> 100 per token per day. `lib/money.ts` stores every amount as an integer in
+> Staff confirm payments by hand, because Bakong's md5 check allows only 100
+> calls per token per day and automatic confirmation used it all up.
+> `lib/money.ts` stores every amount as an integer in
 > minor units, so no float ever reaches a QR amount field.
 >
 > The app has four roles in one codebase: the guest at `/t/A1`, staff at
@@ -101,17 +102,17 @@ Bakong_payment/
 │       ├── rooms/                list, create, by-code, patch, mark ready
 │       ├── menu/                 list, create, patch
 │       ├── bookings/             create, read, items, invoices, close, cancel
-│       ├── invoices/             list, read, check, cancel, simulate
+│       ├── invoices/             list, read, check, approve, cancel
 │       └── khqr/                 test, decode, check
 ├── components/
 │   ├── ui.tsx                   Button, Field, Notice, Wordmark, status label
 │   ├── currency.tsx             Context carrying SHOP_CURRENCY to the client
-│   ├── khqr-payment.tsx         The QR, the countdown, the polling
+│   ├── khqr-payment.tsx         The QR, the countdown, the status poll, the staff approve button
 │   └── site-header.tsx          Header and footer
 └── lib/
     ├── emv.ts                   TLV parse, CRC-16, static → dynamic rewrite
     ├── bakong.ts                QR generation, decoding, md5 verification
-    ├── payments.ts              Throttle, quota backoff, settle
+    ├── payments.ts              Invoice JSON shape
     ├── db.ts                    Schema, seed, migration, all SQL (571 lines)
     ├── money.ts                 Minor units, parsing, formatting
     ├── shop.ts                  Reads SHOP_CURRENCY
@@ -121,7 +122,7 @@ Bakong_payment/
 Rule of thumb: **`emv.ts` → `bakong.ts` → `payments.ts` → `db.ts` → route
 handler → page.** The tag surgery is used by the QR builder, the QR builder by
 the payment layer, the payment layer by the invoice route, and the page polls
-the route.
+the route (local status only).
 
 ---
 
@@ -407,11 +408,13 @@ this one: **staff click "Charge ៛X with KHQR".**
 5. **Browser** `components/khqr-payment.tsx`: renders the QR as an SVG, starts a
    1-second tick for the countdown and a 3-second poll for
    `/api/invoices/{id}/check`.
-6. **Poll** `app/api/invoices/[id]/check/route.ts` → `lib/payments.ts`
-   `settleIfPaid` → `lib/bakong.ts` `verifyTxByMd5` → Bakong Open API.
-7. **Settle** `lib/db.ts`, `settleInvoicePaid`: in **one transaction**, mark
+6. **Poll** `app/api/invoices/[id]/check/route.ts` reads the local database and
+   expires the invoice at its TTL. It never calls Bakong.
+7. **Approve** staff see the money in the Bakong app and press *Confirm payment
+   received*; `app/api/invoices/[id]/approve/route.ts` calls `lib/db.ts`
+   `settleInvoicePaid`: in **one transaction**, mark
    `PAID`, flip the snapshot lines to `BILLED`, push `ends_at` forward.
-8. **Re-render**: the poll returns `PAID`, `KhqrPayment` shows the tick and the
+8. **Re-render**: the next poll returns `PAID`, `KhqrPayment` shows the tick and the
    reference, and the POS shows "Check out and close room".
 
 The snapshot is the thing to explain if asked why a bill cannot be edited: the
@@ -427,42 +430,40 @@ twice. `initialRoomLineId` finds it and the route excludes it from
 
 ---
 
-## 8. Confirming payment, and the quota
+## 8. Confirming payment (by hand)
 
-File: `lib/payments.ts`.
+Files: `app/api/invoices/[id]/approve/route.ts`, `check/route.ts`.
 
-The browser polls every 3 seconds. The server does the real work, because
-**Bakong's Open API allows 100 md5 checks per token per day.** A screen that
-polls every few seconds would burn that in minutes.
+Payments are confirmed by staff. The staff screen shows **Confirm payment
+received** under the QR (`KhqrPayment` with `canApprove`, which only
+`app/staff/page.tsx` sets). It asks for a browser confirm, then POSTs
+`/api/invoices/{id}/approve`, which refuses an invoice that is not `PENDING` or
+has passed its TTL and otherwise calls `settleInvoicePaid`.
 
-```ts
-const MIN_GAP_MS = 15_000;         // between real checks, per invoice
-const QUOTA_ERROR_CODE = 17;       // Bakong's "quota gone" code
-```
+The browser still polls `/check` every 3 seconds, but `/check` reads only the
+local database and marks the invoice `EXPIRED` at its TTL. It never calls
+Bakong, so polling is free.
 
-- `lastCheck: Map<md5, timestamp>` spaces checks per invoice.
-- `force: true` bypasses the gap, for one-off decisions that must ask now:
-  cancel, expiry, re-billing.
-- On error 17, `quotaBlockedUntil` is set to **midnight in Phnom Penh**
-  (computed with a UTC+7 offset) and every check returns false until then.
-- `live` and `quotaBlockedUntil` live on `globalThis`, so one throttle is shared
-  across route bundles and dev reloads instead of being rebuilt per request.
+**Why not check Bakong automatically?** The first version did, through
+`verifyTxByMd5` and a throttle (one call per invoice every 15 seconds, backing
+off on error 17 until midnight in Phnom Penh). Bakong's Open API allows **100
+md5 checks per token per day**, and it ran out without confirming a single
+payment. The throttle, the quota backoff and the demo Simulate button are gone;
+Confirm payment received replaces all three.
 
-`verifyTxByMd5` checks amount and currency as sanity checks. It deliberately
-does **not** compare `toAccountId`, because a bank sub-account can settle through a
-bridge account, so the destination does not match what you would expect.
+`verifyTxByMd5` remains in `lib/bakong.ts` for `/admin/khqr-test`, which traces
+one md5 by hand. It checks amount and currency and deliberately does **not**
+compare `toAccountId`, because a bank sub-account can settle through a bridge
+account.
 
-### The edge cases that matter
+### The trade-offs
 
-- **Expiry**: when the TTL passes, `/check` forces one final lookup *before*
-  expiring, so a payment made at 4:59 still settles.
-- **Cancel**: `/cancel` does the same, so staff can never void a paid bill.
-- **Cancel booking**: the route force-checks the open QR first and refuses with
-  "The open QR was just paid. Review the bill before cancelling."
-- **Invoice route retry**: the same force-check, so a late payment is settled
-  instead of being billed twice.
-
-All four are the same idea: **never let a paid bill be lost by a race.**
+- **Confirm before the TTL.** A payment made just before the five minutes are up
+  can expire before staff press the button. The approve route refuses a closed
+  invoice, so staff make a new QR.
+- **Cancel and re-billing** now just close the open QR. Nothing looks up Bakong.
+- **The button trusts the staff member.** There is no login on `/staff`, like the
+  rest of the app.
 
 ---
 
@@ -524,8 +525,8 @@ produces a QR that looks right and fails.
 - `currency.tsx`: React context carrying `SHOP_CURRENCY` from the server, so
   changing it needs no rebuild. `useMoney()` returns a formatter that defaults to
   the shop currency but accepts an override for historical lines.
-- `khqr-payment.tsx`: the QR, the countdown, the polling, the simulate and
-  cancel buttons, and PNG export for customers paying on the same phone that
+- `khqr-payment.tsx`: the QR, the countdown, the status poll, the
+  staff approve and cancel buttons, and PNG export for customers paying on the same phone that
   shows the QR (bank apps scan the gallery, which needs PNG, not SVG).
 
 ---
@@ -605,8 +606,9 @@ Stops a leaked QR from being paid hours later. The QR is a bill for a specific
 total, and the total stops being true as soon as the guest adds more.
 
 **What if the guest pays at 4:59?**
-`/check` forces one final Bakong lookup at expiry before marking the invoice
-expired, so it settles.
+Staff have to press Confirm payment received before the five minutes end. After
+that the invoice is `EXPIRED` and the approve route refuses it, so staff make a
+new QR. There is no automatic lookup to rescue a late payment.
 
 ### About the code
 
@@ -627,11 +629,6 @@ characters. `parseTlv` walks it, `tlv()` builds a piece, and
 **What is CRC-16/CCITT-FALSE?**
 A checksum EMV QR requires over the payload, including the `6304` marker. We
 recompute it after rewriting tags, or bank apps reject the string.
-
-**Why `globalThis` for the throttle?**
-Next.js bundles routes separately, so a module-level `Map` would be rebuilt per
-bundle. Storing it on `globalThis` gives one throttle across route bundles and
-dev reloads.
 
 **What does `settleInvoicePaid` do in one transaction?**
 Marks the invoice `PAID`, flips the snapshot lines to `BILLED`, and pushes
@@ -679,7 +676,7 @@ out.
 |---|---|
 | **No authentication at all** | There is no login anywhere. `/admin` and `/staff` are open to anyone who reaches the server. The fix is a session guard on those routes, and it should be done before any public deploy. |
 | **No automated tests** | Only `tsc` and `eslint` run in CI terms. The pure functions in `lib/emv.ts` and `lib/money.ts` are the easiest to test first. |
-| **The 100-checks-per-day quota** | A busy day exhausts it and payments stop auto-confirming until midnight. A real system needs a webhook or a bulk reconciliation, which this public API does not offer. |
+| **Manual payment confirmation** | Bakong's 100-checks-per-day quota ran out with automatic confirmation, so staff confirm by hand. The button has no login and trusts the staff member. A real system needs a webhook or a bulk reconciliation, which this public API does not offer. |
 | **`/admin` is public** | Same as the first row. Room rates, menu prices and booking history are all readable. |
 | **SQLite** | Fine for one cinema. For many simultaneous users, move to PostgreSQL. `lib/db.ts` is the only file to change. |
 | **One bill per booking, one currency** | Staff can charge in either riel or dollars, but a booking is settled by one invoice in one currency. There is no part-payment, and a booking whose unbilled lines span two currencies is refused. |
@@ -707,18 +704,16 @@ Setup:
 cp .env.example .env.local  # then fill it in
 ```
 
-Demo mode needs no Bakong account: with no `BAKONG_TOKEN`, the payment screen
-shows a **Simulate** button that marks an invoice paid without moving money.
-
-Live mode needs `BAKONG_TOKEN` from the Bakong developer portal. With a token
-set, simulation is off unless `SIMULATE_PAYMENTS=true` is set again on purpose.
+No Bakong account is needed to run it: the **Confirm payment received** button
+on the staff screen works with or without a `BAKONG_TOKEN`, so a demo can press it
+without moving money. The token is only used by `/admin/khqr-test`.
 
 ---
 
 ## 15. Practice plan (about 2 hours)
 
 1. **Run it** (15 min): `npm run dev`, then walk a booking end to end. Check a
-   guest into A1, add popcorn, charge, simulate, check out, mark the room ready.
+   guest into A1, add popcorn, charge, confirm payment received, check out, mark the room ready.
 2. **Read in this order** (60 min), with this guide open:
    `lib/money.ts` → `lib/emv.ts` → `lib/bakong.ts` → `lib/payments.ts` →
    `lib/db.ts` (`createInvoice` and `settleInvoicePaid`) →
@@ -729,10 +724,10 @@ set, simulation is off unless `SIMULATE_PAYMENTS=true` is set again on purpose.
    fields. Compare tag 29 or 30, the bank's private tag (39, 40, 42), and tag 53
    against the POS variant. This is the single most useful ten minutes you can
    spend.
-4. **Break something on purpose** (10 min): set `SHOP_CURRENCY=USD` with a KHR
-   source QR, restart, and see the currency-mismatch error. Then set
-   `MIN_GAP_MS` in `lib/payments.ts` to `15_000_000` and watch the payment
-   screen stop confirming. Change both back.
+4. **Break something on purpose** (10 min): clear `MERCHANT_KHQR_CURRENCIES`
+   with a KHR-only source QR, restart, and charge a bill in USD to see the
+   currency-mismatch error. Then let a QR run past five minutes and try Confirm
+   payment received on it to see the approve route refuse. Change it back.
 5. **Explain section 7 out loud** without reading, then answer the questions in
    section 12 with the answers covered.
 
@@ -745,7 +740,7 @@ set, simulation is off unless `SIMULATE_PAYMENTS=true` is set again on purpose.
 | KHQR | Khmer QR, Cambodia's national instant-payment standard |
 | EMV TLV | Tag, length, value: how a QR string is encoded |
 | PoIM | Point of Initiation Method, tag `01`; 11 static, 12 dynamic |
-| md5 | The hash Bakong indexes a transaction by, and what we poll |
+| md5 | The hash Bakong indexes a transaction by; the test bench looks it up by hand |
 | Minor units | Cents, or whole riel; how money is stored |
 | CRC-16/CCITT-FALSE | The checksum EMV QR requires, computed over the payload plus `6304` |
 | Force-dynamic | Tells Next.js not to cache a route |

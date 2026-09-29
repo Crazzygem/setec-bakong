@@ -199,7 +199,3 @@ export async function verifyTxByMd5(
 export function liveVerificationEnabled(): boolean {
   return !!process.env.BAKONG_TOKEN;
 }
-
-export function simulateEnabled(): boolean {
-  return process.env.SIMULATE_PAYMENTS === "true";
-}
