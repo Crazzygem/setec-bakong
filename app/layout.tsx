@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { CurrencyProvider } from "@/components/currency";
-import { shopCurrency } from "@/lib/shop";
+import { describeSettlement, shopCurrency } from "@/lib/shop";
 import "./globals.css";
 
 // DESIGN.md names Inter as the open substitute for its licensed display face.
@@ -14,6 +14,9 @@ export const metadata: Metadata = {
 
 // Read SHOP_CURRENCY per request rather than baking it in at build time.
 export const dynamic = "force-dynamic";
+
+// A currency that the settlement account cannot take fails at the till, so say it at boot.
+console.log(describeSettlement());
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

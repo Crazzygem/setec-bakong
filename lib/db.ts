@@ -22,6 +22,7 @@ export interface RoomRow {
   hourly_rate: number;
   capacity: number;
   status: RoomStatus;
+  image_url: string | null;
 }
 
 export interface MenuItemRow {
@@ -29,6 +30,7 @@ export interface MenuItemRow {
   name: string;
   price: number;
   available: number;
+  image_url: string | null;
 }
 
 export interface BookingRow {
@@ -87,7 +89,7 @@ export function getDb(): Database.Database {
   return db;
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 function columns(d: Database.Database, table: string): string[] {
   return (d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
@@ -98,10 +100,17 @@ function initDb(d: Database.Database): void {
   if (version < SCHEMA_VERSION) {
     const legacy = columns(d, "rooms").includes("hourly_rate_khr");
     d.transaction(() => (legacy ? migrateFromKhrOnly(d) : createSchema(d)))();
+    if (version >= 1) addPhotoColumns(d);
     d.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
   seed(d);
   syncPriceCurrency(d);
+}
+
+/** Photos arrived after the first release, so existing installs get the columns in place. */
+function addPhotoColumns(d: Database.Database): void {
+  for (const table of ["rooms", "menu_items"])
+    if (!columns(d, table).includes("image_url")) d.exec(`ALTER TABLE ${table} ADD COLUMN image_url TEXT`);
 }
 
 function createSchema(d: Database.Database): void {
@@ -113,13 +122,15 @@ function createSchema(d: Database.Database): void {
       name TEXT NOT NULL,
       hourly_rate INTEGER NOT NULL,
       capacity INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'AVAILABLE'
+      status TEXT NOT NULL DEFAULT 'AVAILABLE',
+      image_url TEXT
     );
     CREATE TABLE IF NOT EXISTS menu_items(
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       price INTEGER NOT NULL,
-      available INTEGER NOT NULL DEFAULT 1
+      available INTEGER NOT NULL DEFAULT 1,
+      image_url TEXT
     );
     CREATE TABLE IF NOT EXISTS bookings(
       id TEXT PRIMARY KEY,
@@ -240,7 +251,7 @@ export function getRoomByCode(code: string): RoomRow | undefined {
   return getDb().prepare("SELECT * FROM rooms WHERE code = ?").get(code.toUpperCase()) as RoomRow | undefined;
 }
 
-export function createRoom(input: { code: string; name: string; hourlyRate: number; capacity: number }): RoomRow {
+export function createRoom(input: { code: string; name: string; hourlyRate: number; capacity: number; imageUrl?: string | null }): RoomRow {
   const row: RoomRow = {
     id: randomUUID(),
     code: input.code.toUpperCase().trim(),
@@ -248,14 +259,15 @@ export function createRoom(input: { code: string; name: string; hourlyRate: numb
     hourly_rate: Math.round(input.hourlyRate),
     capacity: Math.round(input.capacity),
     status: "AVAILABLE",
+    image_url: input.imageUrl ?? null,
   };
   getDb()
-    .prepare("INSERT INTO rooms(id, code, name, hourly_rate, capacity, status) VALUES(?,?,?,?,?,?)")
-    .run(row.id, row.code, row.name, row.hourly_rate, row.capacity, row.status);
+    .prepare("INSERT INTO rooms(id, code, name, hourly_rate, capacity, status, image_url) VALUES(?,?,?,?,?,?,?)")
+    .run(row.id, row.code, row.name, row.hourly_rate, row.capacity, row.status, row.image_url);
   return row;
 }
 
-export function updateRoom(id: string, patch: { name?: string; hourlyRate?: number; capacity?: number }): void {
+export function updateRoom(id: string, patch: { name?: string; hourlyRate?: number; capacity?: number; imageUrl?: string | null }): void {
   const sets: string[] = [];
   const vals: unknown[] = [];
   if (patch.name !== undefined) {
@@ -269,6 +281,10 @@ export function updateRoom(id: string, patch: { name?: string; hourlyRate?: numb
   if (patch.capacity !== undefined) {
     sets.push("capacity = ?");
     vals.push(Math.round(patch.capacity));
+  }
+  if (patch.imageUrl !== undefined) {
+    sets.push("image_url = ?");
+    vals.push(patch.imageUrl);
   }
   if (sets.length === 0) return;
   getDb().prepare(`UPDATE rooms SET ${sets.join(", ")} WHERE id = ?`).run(...vals, id);
@@ -291,13 +307,21 @@ export function getMenuItem(id: string): MenuItemRow | undefined {
   return getDb().prepare("SELECT * FROM menu_items WHERE id = ?").get(id) as MenuItemRow | undefined;
 }
 
-export function createMenuItem(input: { name: string; price: number }): MenuItemRow {
-  const row: MenuItemRow = { id: randomUUID(), name: input.name.trim(), price: Math.round(input.price), available: 1 };
-  getDb().prepare("INSERT INTO menu_items(id, name, price, available) VALUES(?,?,?,?)").run(row.id, row.name, row.price, row.available);
+export function createMenuItem(input: { name: string; price: number; imageUrl?: string | null }): MenuItemRow {
+  const row: MenuItemRow = {
+    id: randomUUID(),
+    name: input.name.trim(),
+    price: Math.round(input.price),
+    available: 1,
+    image_url: input.imageUrl ?? null,
+  };
+  getDb()
+    .prepare("INSERT INTO menu_items(id, name, price, available, image_url) VALUES(?,?,?,?,?)")
+    .run(row.id, row.name, row.price, row.available, row.image_url);
   return row;
 }
 
-export function updateMenuItem(id: string, patch: { name?: string; price?: number; available?: boolean }): void {
+export function updateMenuItem(id: string, patch: { name?: string; price?: number; available?: boolean; imageUrl?: string | null }): void {
   const sets: string[] = [];
   const vals: unknown[] = [];
   if (patch.name !== undefined) {
@@ -311,6 +335,10 @@ export function updateMenuItem(id: string, patch: { name?: string; price?: numbe
   if (patch.available !== undefined) {
     sets.push("available = ?");
     vals.push(patch.available ? 1 : 0);
+  }
+  if (patch.imageUrl !== undefined) {
+    sets.push("image_url = ?");
+    vals.push(patch.imageUrl);
   }
   if (sets.length === 0) return;
   getDb().prepare(`UPDATE menu_items SET ${sets.join(", ")} WHERE id = ?`).run(...vals, id);

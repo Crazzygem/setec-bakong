@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import type { ComponentProps, ReactNode } from "react";
+import { useEffect, useRef, type ComponentProps, type ReactNode } from "react";
 
 type Variant = "primary" | "secondary" | "tertiary" | "tertiary-danger" | "danger";
 
@@ -70,6 +72,56 @@ export function Field({
         </p>
       )}
     </div>
+  );
+}
+
+/** DESiGN.md modal scrim: #000 at 50%. `::backdrop` needs a pseudo-element, so it lives in globals.css. */
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (open && !el.open) el.showModal();
+    if (!open && el.open) el.close();
+  }, [open]);
+
+  return (
+    <dialog
+      ref={ref}
+      aria-label={title}
+      onClose={onClose}
+      onClick={(e) => {
+        // Clicks land on the dialog itself only when they hit the backdrop.
+        if (e.target === ref.current) onClose();
+      }}
+      className="m-auto w-[min(560px,calc(100vw-32px))] rounded-md border border-hairline bg-canvas p-0 shadow-float backdrop:bg-black/50"
+    >
+      <div className="flex max-h-[85dvh] flex-col">
+        <div className="flex items-start justify-between gap-4 border-b border-hairline-soft px-5 py-4">
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="-mr-1 grid h-11 w-11 shrink-0 place-items-center rounded-sm text-xl text-muted hover:bg-surface-soft hover:text-ink"
+          >
+            <span aria-hidden>×</span>
+          </button>
+        </div>
+        <div className="overflow-y-auto px-5 py-5">{children}</div>
+      </div>
+    </dialog>
   );
 }
 

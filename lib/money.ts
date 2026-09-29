@@ -40,6 +40,34 @@ export function convertMinor(minor: number, from: Currency, to: Currency): numbe
   return Math.max(100, Math.round(((minor / 100) * KHR_PER_USD) / 100) * 100);
 }
 
+/** What the guest is charged when a tab is billed in `to`. */
+export interface BillConversion {
+  /** Minor units in `to`, what the invoice total must be. */
+  total: number;
+  /** The tab total in `to` before rounding, so the UI can show where the difference came from. */
+  exact: number;
+  /** true when `to` had fewer minor units and the total was rounded to a payable amount. */
+  rounded: boolean;
+}
+
+/**
+ * Converts a tab total into the currency the guest is paying in. One cent is 40 riel,
+ * so a riel total only divides exactly into dollars when it is a multiple of 40; the
+ * nearest cent is off by at most 20 riel. Unlike convertMinor there is no minimum,
+ * because a small tab billed in dollars must not be inflated into a bigger bill.
+ */
+export function toBillAmount(minor: number, from: Currency, to: Currency): BillConversion {
+  if (from === to) return { total: minor, exact: minorToMajor(minor, from), rounded: false };
+  if (to === "USD") {
+    const exact = (minor / KHR_PER_USD) * 100;
+    const total = Math.max(1, Math.round(exact));
+    return { total, exact, rounded: total !== exact };
+  }
+  const exact = (minor / 100) * KHR_PER_USD;
+  const total = Math.max(1, Math.round(exact));
+  return { total, exact, rounded: total !== exact };
+}
+
 export function moneyInputAttrs(currency: Currency): { step: string; min: string; prefix: string } {
   return currency === "USD" ? { step: "0.01", min: "0.01", prefix: "$" } : { step: "100", min: "100", prefix: "៛" };
 }

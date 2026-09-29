@@ -2,7 +2,7 @@ import { createKHQR } from "@manethpak/khqr-sdk";
 // QR generation uses NBC's official SDK: the community SDK writes tag-99 timestamps in
 // seconds, which strict bank apps reject. The community client is kept for the Open API only.
 import { BakongKHQR, IndividualInfo, MerchantInfo, khqrData } from "bakong-khqr";
-import { dynamicFromStatic } from "@/lib/emv";
+import { dynamicFromStatic, parseTlv } from "@/lib/emv";
 import { majorToMinor, minorToMajor, type Currency } from "@/lib/money";
 import { shopCurrency } from "@/lib/shop";
 
@@ -120,8 +120,13 @@ export function khqrFromSource(
   }
 }
 
-export function generateInvoiceQR(input: { invoiceId: string; amount: number }): QRGenResult & { currency: Currency } {
-  const currency = shopCurrency();
+export function generateInvoiceQR(input: {
+  invoiceId: string;
+  amount: number;
+  /** The currency the guest is paying in. Staff choose it; it defaults to the shop currency. */
+  currency?: Currency;
+}): QRGenResult & { currency: Currency } {
+  const currency = input.currency ?? shopCurrency();
   // MERCHANT_KHQR_SOURCE is the bank app's receive-money QR text; it wins over the separate fields.
   const source = process.env.MERCHANT_KHQR_SOURCE?.trim();
   if (source) return { currency, ...khqrFromSource(source, { currency, amount: input.amount, billNumber: input.invoiceId }) };
@@ -129,6 +134,23 @@ export function generateInvoiceQR(input: { invoiceId: string; amount: number }):
     currency,
     ...buildKhqr({ ...merchantKhqrDefaults(), currency, amount: input.amount, billNumber: input.invoiceId }),
   };
+}
+
+/**
+ * ACLEDA marks a dual-currency account with tag 39 "2CCY", and the bank then routes by
+ * whatever currency the customer pays in. Such an account accepts both. A source without
+ * 2CCY is single-currency, and a bill in the other currency produces a QR the bank app
+ * rejects at account inquiry, which looks like a scan failure rather than a mismatch.
+ */
+export function sourceAcceptsCurrency(source: string, currency: Currency): boolean {
+  try {
+    const dual = parseTlv(source).some(([t, v]) => t === "39" && v.includes("2CCY"));
+    if (dual) return true;
+    const code = parseTlv(source).find(([t]) => t === "53")?.[1];
+    return (code === "840" && currency === "USD") || (code === "116" && currency === "KHR");
+  } catch {
+    return false;
+  }
 }
 
 export function decodeKhqr(qr: string): { valid: boolean; fields: Record<string, unknown> } {

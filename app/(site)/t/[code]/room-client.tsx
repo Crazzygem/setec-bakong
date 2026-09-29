@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMoney } from "@/components/currency";
 import { KhqrPayment } from "@/components/khqr-payment";
-import { Button, Notice, RoomStatusLabel, type RoomStatus } from "@/components/ui";
+import {
+  Button,
+  Notice,
+  RoomStatusLabel,
+  type RoomStatus,
+} from "@/components/ui";
 import type { Currency } from "@/lib/money";
 
 interface Room {
@@ -14,6 +19,7 @@ interface Room {
   hourly_rate: number;
   capacity: number;
   status: RoomStatus;
+  image_url: string | null;
 }
 interface Booking {
   id: string;
@@ -33,7 +39,22 @@ interface MenuItem {
   id: string;
   name: string;
   price: number;
+  image_url: string | null;
 }
+
+/** Small square photo for the read-only menu list. */
+function MenuThumb({ url }: { url: string | null }) {
+  if (!url) return null;
+  return (
+    <img
+      src={url}
+      alt=""
+      className="h-10 w-10 shrink-0 rounded-sm object-cover"
+      aria-hidden
+    />
+  );
+}
+
 interface RoomState {
   room: Room;
   booking: Booking | null;
@@ -46,21 +67,47 @@ interface RoomState {
 function timeLeft(endsAt: number, now: number): string {
   const m = Math.max(0, Math.round((endsAt - now) / 60_000));
   if (m === 0) return "Your time is up";
-  return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min left` : `${m} min left`;
+  return m >= 60
+    ? `${Math.floor(m / 60)} h ${m % 60} min left`
+    : `${m} min left`;
 }
 
-function Stepper({ value, onChange, label }: { value: number; onChange: (n: number) => void; label: string }) {
+function Stepper({
+  value,
+  onChange,
+  label,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  label: string;
+}) {
   const btn =
     "grid h-11 w-11 place-items-center rounded-full border border-field bg-canvas text-lg text-ink hover:border-ink disabled:border-hairline disabled:text-field";
   return (
-    <div className="flex items-center gap-2" role="group" aria-label={`Quantity of ${label}`}>
-      <button type="button" className={btn} onClick={() => onChange(value - 1)} disabled={value <= 1} aria-label={`One less ${label}`}>
+    <div
+      className="flex items-center gap-2"
+      role="group"
+      aria-label={`Quantity of ${label}`}
+    >
+      <button
+        type="button"
+        className={btn}
+        onClick={() => onChange(value - 1)}
+        disabled={value <= 1}
+        aria-label={`One less ${label}`}
+      >
         −
       </button>
       <span className="w-6 text-center tabular-nums" aria-live="polite">
         {value}
       </span>
-      <button type="button" className={btn} onClick={() => onChange(value + 1)} disabled={value >= 10} aria-label={`One more ${label}`}>
+      <button
+        type="button"
+        className={btn}
+        onClick={() => onChange(value + 1)}
+        disabled={value >= 10}
+        aria-label={`One more ${label}`}
+      >
         +
       </button>
     </div>
@@ -86,9 +133,12 @@ export default function RoomClient({ code }: { code: string }) {
       const data: RoomState = await res.json();
       setState(data);
       setLoadError(null);
-      if (data.pendingInvoiceId) setInvoiceId((cur) => cur ?? data.pendingInvoiceId);
+      if (data.pendingInvoiceId)
+        setInvoiceId((cur) => cur ?? data.pendingInvoiceId);
     } catch {
-      setLoadError("Your room could not load. Check your connection and refresh.");
+      setLoadError(
+        "Your room could not load. Check your connection and refresh.",
+      );
     }
   }, [code]);
 
@@ -103,7 +153,11 @@ export default function RoomClient({ code }: { code: string }) {
     };
   }, [load]);
 
-  async function post(key: string, url: string, body?: object): Promise<Record<string, unknown> | null> {
+  async function post(
+    key: string,
+    url: string,
+    body?: object,
+  ): Promise<Record<string, unknown> | null> {
     setBusy(key);
     setMsg(null);
     try {
@@ -139,14 +193,22 @@ export default function RoomClient({ code }: { code: string }) {
 
   async function extend(hours: number) {
     if (!state?.booking) return;
-    await post(`ext${hours}`, `/api/bookings/${state.booking.id}/items`, { kind: "ROOM_HOURS", hours });
+    await post(`ext${hours}`, `/api/bookings/${state.booking.id}/items`, {
+      kind: "ROOM_HOURS",
+      hours,
+    });
     await load();
   }
 
   async function pay() {
     if (!state?.booking) return;
     setPaidNote(false);
-    const data = await post("pay", `/api/bookings/${state.booking.id}/invoices`);
+    // Staff choose the currency at the till. A guest pays in the shop currency unless a
+    // cashier has already raised a bill in the other one, which the server honours.
+    const data = await post(
+      "pay",
+      `/api/bookings/${state.booking.id}/invoices`,
+    );
     const inv = data?.invoice as { id: string } | undefined;
     if (inv) {
       setInvoiceId(inv.id);
@@ -160,7 +222,7 @@ export default function RoomClient({ code }: { code: string }) {
       setPaidNote(status === "PAID");
       load();
     },
-    [load]
+    [load],
   );
 
   if (loadError && !state)
@@ -169,7 +231,12 @@ export default function RoomClient({ code }: { code: string }) {
         <Notice tone="error">{loadError}</Notice>
       </div>
     );
-  if (!state) return <p className="mx-auto max-w-[1080px] px-4 py-16 text-muted sm:px-6">Loading room {code}…</p>;
+  if (!state)
+    return (
+      <p className="mx-auto max-w-[1080px] px-4 py-16 text-muted sm:px-6">
+        Loading room {code}…
+      </p>
+    );
 
   const { room, booking, tab, unbilledTotal, menu } = state;
   const unbilled = tab.filter((l) => l.state === "UNBILLED");
@@ -178,16 +245,33 @@ export default function RoomClient({ code }: { code: string }) {
 
   const header = (
     <div className="flex items-end justify-between gap-4 border-b border-hairline-soft pb-6">
-      <div>
-        <p className="text-sm text-muted">{room.name}</p>
-        <h1 className="mt-1 text-[22px] leading-tight font-medium">
-          {booking ? `Welcome, ${booking.customer_name}` : "This room is free right now"}
-        </h1>
-        <p className="mt-2 text-sm text-body">
-          {booking ? timeLeft(booking.ends_at, now) : `${money(room.hourly_rate)} per hour, ${room.capacity} seats`}
-        </p>
+      <div className="flex min-w-0 items-center gap-4">
+        {room.image_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={room.image_url}
+            alt=""
+            className="h-16 w-16 shrink-0 rounded-md object-cover"
+          />
+        )}
+        <div className="min-w-0">
+          <p className="text-sm text-muted">{room.name}</p>
+          <h1 className="mt-1 text-[22px] leading-tight font-medium">
+            {booking
+              ? `Welcome, ${booking.customer_name}`
+              : "This room is free right now"}
+          </h1>
+          <p className="mt-2 text-sm text-body">
+            {booking
+              ? timeLeft(booking.ends_at, now)
+              : `${money(room.hourly_rate)} per hour, ${room.capacity} seats`}
+          </p>
+        </div>
       </div>
-      <span className="text-[64px] leading-none font-bold tracking-tight" aria-label={`Room ${room.code}`}>
+      <span
+        className="text-[64px] leading-none font-bold tracking-tight"
+        aria-label={`Room ${room.code}`}
+      >
         {room.code}
       </span>
     </div>
@@ -199,16 +283,29 @@ export default function RoomClient({ code }: { code: string }) {
         {header}
         <div className="mt-6 max-w-xl">
           <RoomStatusLabel status={room.status} />
-          <p className="mt-2 text-body">Ask at the counter to check in. Once your time starts, this page shows your bill.</p>
+          <p className="mt-2 text-body">
+            Ask at the counter to check in. Once your time starts, this page
+            shows your bill.
+          </p>
           <h2 className="mt-10 text-xl font-semibold">On the menu</h2>
           {menu.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">The menu is empty right now.</p>
+            <p className="mt-2 text-sm text-muted">
+              The menu is empty right now.
+            </p>
           ) : (
             <ul className="mt-2 divide-y divide-hairline-soft">
               {menu.map((m) => (
-                <li key={m.id} className="flex justify-between py-3">
-                  <span>{m.name}</span>
-                  <span className="tabular-nums">{money(m.price)}</span>
+                <li
+                  key={m.id}
+                  className="flex items-center justify-between gap-4 py-3"
+                >
+                  <span className="flex min-w-0 items-center gap-3">
+                    <MenuThumb url={m.image_url} />
+                    {m.name}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {money(m.price)}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -229,31 +326,72 @@ export default function RoomClient({ code }: { code: string }) {
       <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-16">
         <div>
           <h2 className="text-xl font-semibold">Snacks and drinks</h2>
-          <p className="mt-1 text-sm text-muted">Delivered to your room. Added items go on your bill.</p>
+          <p className="mt-1 text-sm text-muted">
+            Delivered to your room. Added items go on your bill.
+          </p>
           {menu.length === 0 ? (
-            <p className="mt-4 text-sm text-muted">Nothing on the menu right now.</p>
+            <p className="mt-4 text-sm text-muted">
+              Nothing on the menu right now.
+            </p>
           ) : (
-            <ul className="mt-4 divide-y divide-hairline-soft border-y border-hairline-soft">
+            <ul className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-3">
               {menu.map((m) => (
-                <li key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 py-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium">{m.name}</p>
-                    <p className="text-sm text-muted tabular-nums">{money(m.price)}</p>
+                <li
+                  key={m.id}
+                  className="flex flex-col overflow-hidden rounded-md border border-hairline bg-canvas"
+                >
+                  <div className="grid aspect-[4/3] place-items-center overflow-hidden bg-surface-soft">
+                    {m.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={m.image_url}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="px-3 text-center text-sm text-muted">
+                        No photo yet
+                      </span>
+                    )}
                   </div>
-                  <Stepper label={m.name} value={qty[m.id] ?? 1} onChange={(n) => setQty((q) => ({ ...q, [m.id]: n }))} />
-                  <Button variant="secondary" size="sm" onClick={() => addSnack(m)} disabled={busy !== null}>
-                    {busy === m.id ? "Adding…" : "Add"}
-                  </Button>
+                  <div className="flex flex-1 flex-col p-3">
+                    <p className="font-medium">{m.name}</p>
+                    <p className="text-sm text-muted tabular-nums">
+                      {money(m.price)}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <Stepper
+                        label={m.name}
+                        value={qty[m.id] ?? 1}
+                        onChange={(n) => setQty((q) => ({ ...q, [m.id]: n }))}
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => addSnack(m)}
+                        disabled={busy !== null}
+                      >
+                        {busy === m.id ? "Adding…" : "Add"}
+                      </Button>
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
 
           <h2 className="mt-10 text-xl font-semibold">Stay longer</h2>
-          <p className="mt-1 text-sm text-muted">Extra time starts after your current end time, once it is paid.</p>
+          <p className="mt-1 text-sm text-muted">
+            Extra time starts after your current end time, once it is paid.
+          </p>
           <div className="mt-4 flex flex-wrap gap-3">
             {[1, 2].map((h) => (
-              <Button key={h} variant="secondary" onClick={() => extend(h)} disabled={busy !== null}>
+              <Button
+                key={h}
+                variant="secondary"
+                onClick={() => extend(h)}
+                disabled={busy !== null}
+              >
                 Add {h} hour{h > 1 ? "s" : ""} · {money(h * room.hourly_rate)}
               </Button>
             ))}
@@ -264,8 +402,15 @@ export default function RoomClient({ code }: { code: string }) {
           <div className="rounded-md border border-hairline bg-canvas p-6 shadow-float lg:sticky lg:top-6">
             {qrOpen ? (
               <>
-                <h2 className="mb-4 text-center text-base font-semibold">Pay with KHQR</h2>
-                <KhqrPayment key={invoiceId} invoiceId={invoiceId!} onSettled={onSettled} showSave />
+                <h2 className="mb-4 text-center text-base font-semibold">
+                  Pay with KHQR
+                </h2>
+                <KhqrPayment
+                  key={invoiceId}
+                  invoiceId={invoiceId!}
+                  onSettled={onSettled}
+                  showSave
+                />
               </>
             ) : (
               <>
@@ -276,35 +421,53 @@ export default function RoomClient({ code }: { code: string }) {
                   </div>
                 )}
                 {unbilled.length === 0 ? (
-                  <p className="mt-3 text-sm text-muted">Nothing to pay right now.</p>
+                  <p className="mt-3 text-sm text-muted">
+                    Nothing to pay right now.
+                  </p>
                 ) : (
                   <ul className="mt-3 space-y-2 text-sm">
                     {unbilled.map((l) => (
                       <li key={l.id} className="flex justify-between gap-3">
                         <span>
                           {l.label}
-                          {l.kind === "SNACK" && l.qty > 1 && <span className="text-muted"> × {l.qty}</span>}
+                          {l.kind === "SNACK" && l.qty > 1 && (
+                            <span className="text-muted"> × {l.qty}</span>
+                          )}
                         </span>
-                        <span className="tabular-nums">{money(l.qty * l.unit_price, l.currency)}</span>
+                        <span className="tabular-nums">
+                          {money(l.qty * l.unit_price, l.currency)}
+                        </span>
                       </li>
                     ))}
                   </ul>
                 )}
                 <div className="mt-4 flex items-baseline justify-between border-t border-hairline pt-4">
                   <span className="font-semibold">To pay</span>
-                  <span className="text-[21px] font-bold tabular-nums">{money(unbilledTotal)}</span>
+                  <span className="text-[21px] font-bold tabular-nums">
+                    {money(unbilledTotal)}
+                  </span>
                 </div>
-                <Button className="mt-4 w-full" onClick={pay} disabled={busy !== null || unbilledTotal <= 0}>
-                  {busy === "pay" ? "Making your QR…" : `Pay ${money(unbilledTotal)} with KHQR`}
+                <Button
+                  className="mt-4 w-full"
+                  onClick={pay}
+                  disabled={busy !== null || unbilledTotal <= 0}
+                >
+                  {busy === "pay"
+                    ? "Making your QR…"
+                    : `Pay ${money(unbilledTotal)} with KHQR`}
                 </Button>
                 {paid.length > 0 && (
                   <details className="mt-5 text-sm">
-                    <summary className="min-h-11 cursor-pointer py-2 text-body">Already paid ({paid.length})</summary>
+                    <summary className="min-h-11 cursor-pointer py-2 text-body">
+                      Already paid ({paid.length})
+                    </summary>
                     <ul className="space-y-1 text-muted">
                       {paid.map((l) => (
                         <li key={l.id} className="flex justify-between gap-3">
                           <span>{l.label}</span>
-                          <span className="tabular-nums">{money(l.qty * l.unit_price, l.currency)}</span>
+                          <span className="tabular-nums">
+                            {money(l.qty * l.unit_price, l.currency)}
+                          </span>
                         </li>
                       ))}
                     </ul>
@@ -322,9 +485,14 @@ export default function RoomClient({ code }: { code: string }) {
           <div className="mx-auto flex max-w-[1080px] items-center justify-between gap-4">
             <div>
               <p className="text-xs text-muted">To pay</p>
-              <p className="text-lg font-bold tabular-nums">{money(unbilledTotal)}</p>
+              <p className="text-lg font-bold tabular-nums">
+                {money(unbilledTotal)}
+              </p>
             </div>
-            <Button onClick={pay} disabled={busy !== null || unbilledTotal <= 0}>
+            <Button
+              onClick={pay}
+              disabled={busy !== null || unbilledTotal <= 0}
+            >
               {busy === "pay" ? "Making QR…" : "Pay with KHQR"}
             </Button>
           </div>
