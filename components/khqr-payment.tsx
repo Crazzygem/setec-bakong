@@ -68,6 +68,7 @@ export function KhqrPayment({
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const settledRef = useRef(onSettled);
   const firedRef = useRef(false);
   useEffect(() => {
@@ -128,14 +129,19 @@ export function KhqrPayment({
     }
   }, [inv]);
 
-  async function post(path: "approve" | "cancel") {
+  async function post(path: "approve" | "verify" | "cancel") {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch(`/api/invoices/${encodeURIComponent(invoiceId)}/${path}`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "That did not work. Try again.");
+        return;
+      }
+      if (path === "verify" && !data.paid) {
+        setNotice("Bakong has no payment for this QR yet. Try again in a moment.");
         return;
       }
       applyStatus(data.status);
@@ -187,14 +193,17 @@ export function KhqrPayment({
         Scan with any Cambodian bank app. Closes in{" "}
         <span className={`font-semibold tabular-nums ${left < 60_000 ? "text-error" : "text-ink"}`}>{mmss(left)}</span>
       </p>
-      <p className="mt-1 text-center text-sm text-muted">
-        {canApprove
-          ? "Check the payment in the Bakong app, then confirm it below."
-          : "This screen updates once the shop confirms your payment."}
-      </p>
+      {!canApprove && (
+        <p className="mt-1 text-center text-sm text-muted">This screen updates once the shop confirms your payment.</p>
+      )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-error">
           {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="mt-3 text-center text-sm text-muted">
+          {notice}
         </p>
       )}
       <div className="mt-5 flex w-full max-w-[320px] flex-col gap-2">
@@ -212,7 +221,13 @@ export function KhqrPayment({
           </Button>
         )}
         {canApprove && (
+          <Button onClick={() => post("verify")} disabled={busy}>
+            Check payment with Bakong
+          </Button>
+        )}
+        {canApprove && (
           <Button
+            variant="secondary"
             onClick={() => {
               if (window.confirm(`Confirm you received ${amount} in the Bakong app?`)) post("approve");
             }}

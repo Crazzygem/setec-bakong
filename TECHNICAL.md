@@ -149,8 +149,11 @@ code and validated with the official library.
 
 ## Confirming payment
 
-Staff confirm payments by hand. The staff screen shows **Confirm payment received**
-under the QR; it POSTs `/api/invoices/[id]/approve`, which runs `settleInvoicePaid`
+Staff confirm payments by hand. The staff screen has two buttons under the QR.
+**Check payment with Bakong** POSTs `/api/invoices/[id]/verify`, which makes exactly one
+`verifyTxByMd5` call, settles the invoice if Bakong has the transfer, and reports
+"no payment yet" otherwise (error 17, the daily limit, returns a message pointing at the
+other button). Nothing calls it on a timer. **Confirm payment received** POSTs `/api/invoices/[id]/approve`, which runs `settleInvoicePaid`
 (after a browser confirm dialog) and refuses an invoice that is not `PENDING` or has
 passed its TTL.
 
@@ -164,8 +167,8 @@ This replaced automatic confirmation. The old version called Bakong's
 15 seconds) and still used up the API's 100-checks-per-token-per-day limit without
 confirming a payment. Cancel, expiry and re-billing no longer look anything up either.
 
-`verifyTxByMd5` remains in `lib/bakong.ts` for the `/admin/khqr-test` page, which
-traces one md5 by hand; each click there costs one call. It checks amount and currency
+`verifyTxByMd5` is used only by the Check button and the `/admin/khqr-test` page; each
+click costs one call. It checks amount and currency
 and deliberately does not compare `toAccountId`, because a bank sub-account can settle
 through a bridge account.
 

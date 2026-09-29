@@ -39,10 +39,15 @@ npm run dev
 
 Open http://localhost:3000. `.env.example` documents every variable.
 
-Payments are confirmed by hand. The staff screen shows a **Confirm payment received**
-button under the QR: check that the money arrived in the Bakong app, then press it. The
-guest's screen flips to paid once staff confirm. The app never polls Bakong, so
-`BAKONG_TOKEN` is optional and only the `/admin/khqr-test` page uses it.
+Payments are confirmed by staff, and the app never asks Bakong on its own. The staff
+screen has two buttons under the QR:
+
+- **Check payment with Bakong** makes one Bakong lookup per click, like the test page,
+  and marks the bill paid if Bakong has the transfer. It needs `BAKONG_TOKEN`.
+- **Confirm payment received** marks it paid without a lookup, after you saw the money in
+  the Bakong app. It works with no token, and when the daily limit is used up.
+
+The guest's screen flips to paid once staff confirm.
 
 ## Charging in riel or dollars
 
@@ -91,7 +96,7 @@ Two details worth knowing before you debug a QR that will not scan:
 Invoice QRs expire after five minutes, so confirm within that window. The browser polls
 `/check` every three seconds, but that reads only the local database. It never calls
 Bakong. An earlier version checked Bakong automatically, and its 100-checks-per-token-per-day
-limit ran out without confirming a single payment.
+limit ran out without confirming a single payment. Now only the Check button spends one.
 
 ## Deployment
 
