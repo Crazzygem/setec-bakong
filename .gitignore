@@ -15,10 +15,12 @@
 
 # next.js
 /.next/
+/.next-test/
 /out/
 
 # production
 /build
+/data
 
 # misc
 .DS_Store
@@ -32,6 +34,14 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# AI working files and design notes, kept out of the repo
+/DESIGN.md
+AGENTS.md
+CLAUDE.md
+.cursor/
+.opencode/
 
 # vercel
 .vercel

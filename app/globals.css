@@ -1,26 +1,61 @@
 @import "tailwindcss";
 
+/*
+ * Tokens from DESIGN.md. Two contrast adjustments (WCAG AA):
+ * white text sits on primary-fill (#e00b41, 4.89:1) because #ff385c gives only 3.52:1,
+ * and form outlines use field (#929292, 3.11:1) because the #dddddd hairline gives 1.36:1.
+ * Light only: DESIGN.md defines no dark theme.
+ */
+@theme {
+  --color-primary: #ff385c;
+  --color-primary-fill: #e00b41;
+  --color-primary-press: #c00a37;
+  --color-primary-disabled: #ffd1da;
+  --color-error: #c13515;
+  --color-ink: #222222;
+  --color-body: #3f3f3f;
+  --color-muted: #6a6a6a;
+  --color-field: #929292;
+  --color-hairline: #dddddd;
+  --color-hairline-soft: #ebebeb;
+  --color-canvas: #ffffff;
+  --color-surface-soft: #f7f7f7;
+  --color-surface-strong: #f2f2f2;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 32px;
+
+  /* The only elevation tier in DESIGN.md. */
+  --shadow-float: rgba(0, 0, 0, 0.02) 0 0 0 1px, rgba(0, 0, 0, 0.04) 0 2px 6px 0, rgba(0, 0, 0, 0.1) 0 4px 8px 0;
+
+  /* DESIGN.md breakpoints: phone < 744, tablet 744 to 1127, desktop from 1128. */
+  --breakpoint-md: 744px;
+  --breakpoint-lg: 1128px;
+
+  --font-sans: var(--font-inter), -apple-system, system-ui, Roboto, "Helvetica Neue", "Noto Sans Khmer", sans-serif;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* One focus style everywhere: a 2px ink ring, 15.9:1 on the white canvas. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
 }

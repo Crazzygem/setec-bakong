@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bakong Cinema Rooms
 
-## Getting Started
+Private cinema rooms booked by the hour, with the tab paid by scanning a Bakong KHQR
+code from any Cambodian banking app. Built as a SETEC e-commerce class project.
 
-First, run the development server:
+Five rooms (A1, A2, B1, B2, VIP) and a six-item snack menu are seeded on first run.
+Prices, room codes and menu items are editable at runtime in Admin.
+
+## How it works
+
+A guest scans the QR code on their door, which opens `/t/A1`. From there they add time
+to the booking, order snacks, and pay the running tab. Staff work from `/staff`: start a
+booking, add tab items, and bill it. The bill produces a KHQR invoice, the guest scans it
+in their banking app, and the invoice settles once the server confirms the transfer.
+
+Money is stored as integers in the currency's minor unit (US cents, or whole riel), so no
+float ever reaches a QR amount tag. Tab lines and invoices each carry their own currency,
+which keeps past bills correct after the shop currency changes.
+
+## Pages
+
+| Route | What it does |
+|---|---|
+| `/` | Room code entry and a live grid of room status |
+| `/t/[code]` | Guest view for one room: extend time, order from the menu, pay |
+| `/staff` | Staff POS: open bookings, add tab items, raise invoices |
+| `/admin` | Rooms, menu, and booking history |
+| `/admin/rooms/[id]/print` | Printable door card with the room QR code |
+| `/admin/khqr-test` | Generates KHQR variants and decodes a scanned code, for testing against your own bank app |
+| `/pay/[invoiceId]` | Standalone payment page for one invoice |
+
+## Running it
 
 ```bash
+npm install
+cp .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. `.env.example` documents every variable.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+With no `BAKONG_TOKEN` set, the app runs in demo mode and the payment screen offers a
+Simulate button that marks an invoice paid without moving money. Setting a token turns
+simulation off unless `SIMULATE_PAYMENTS=true` is set on purpose.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## KHQR generation
 
-## Learn More
+The QR for an invoice can be built two ways, and `MERCHANT_KHQR_SOURCE` decides which:
 
-To learn more about Next.js, take a look at the following resources:
+1. **Copy your bank's static QR.** Paste the receive-money QR string from ACLEDA mobile
+   under My KHQR into `MERCHANT_KHQR_SOURCE`. `lib/emv.ts` rewrites only the amount
+   (tag 54), bill number (tag 26), expiry and CRC tags, leaving every account tag the
+   bank routes on byte for byte. This is the reliable path, because the bank already
+   accepted that exact string.
+2. **Build it from fields.** Without `MERCHANT_KHQR_SOURCE`, the merchant fields build the
+   QR through NBC's official SDK. A bank app rejects this if the layout does not match how
+   that bank registered the account, so use `/admin/khqr-test` to compare variants and
+   find one your app opens.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Two details worth knowing before you debug a QR that will not scan:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Tag 29 is an individual account, tag 30 is a merchant ID. A shared ID such as
+  `khqr@aclb` may be registered either way, so `MERCHANT_KHQR_LAYOUT` matters.
+- `SHOP_CURRENCY` must match what the receiving bank account accepts. A USD-only account
+  rejects a KHR QR at account inquiry, which looks like a scan failure but is not.
 
-## Deploy on Vercel
+Invoice QRs expire after five minutes. The browser polls `/check` every three seconds;
+the server spaces real Bakong lookups at least 15 seconds apart per invoice, because
+Bakong allows 100 md5 checks per token per day. Hitting that quota returns error code 17,
+and the app stops checking until midnight in Phnom Penh.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`Dockerfile` and `railway.toml` are set up for Railway. The container keeps its SQLite
+file on a `/data` volume and runs `npm start`; set `DATABASE_PATH` to a path inside that
+volume. `APP_URL` pins printed door QR codes to one domain, otherwise the print page
+uses whatever address you loaded it from.
+
+There is no authentication. `/admin` and `/staff` are open to anyone who can reach the
+server, so keep this behind a private network or an access proxy.
+
+## Stack
+
+Next.js 15 App Router, React 19, TypeScript, Tailwind v4, better-sqlite3, and
+`@manethpak/khqr-sdk` plus `bakong-khqr`. QR generation uses NBC's SDK because the
+community package writes tag-99 timestamps in seconds, which strict bank apps reject.
