@@ -411,7 +411,7 @@ this one: **staff click "Charge ៛X with KHQR".**
 6. **Poll** `app/api/invoices/[id]/check/route.ts` reads the local database and
    expires the invoice at its TTL. It never calls Bakong.
 7. **Approve** staff see the money in the Bakong app and press *Confirm payment
-   received*; `app/api/invoices/[id]/approve/route.ts` calls `lib/db.ts`
+   received*; `app/api/invoices/[id]/approve/route.ts` (or the *Check payment with Bakong* button, `verify/route.ts`, one Bakong lookup per click) calls `lib/db.ts`
    `settleInvoicePaid`: in **one transaction**, mark
    `PAID`, flip the snapshot lines to `BILLED`, push `ends_at` forward.
 8. **Re-render**: the next poll returns `PAID`, `KhqrPayment` shows the tick and the
@@ -432,10 +432,12 @@ twice. `initialRoomLineId` finds it and the route excludes it from
 
 ## 8. Confirming payment (by hand)
 
-Files: `app/api/invoices/[id]/approve/route.ts`, `check/route.ts`.
+Files: `app/api/invoices/[id]/verify/route.ts`, `approve/route.ts`, `check/route.ts`.
 
-Payments are confirmed by staff. The staff screen shows **Confirm payment
-received** under the QR (`KhqrPayment` with `canApprove`, which only
+Payments are confirmed by staff, and nothing asks Bakong on a timer. The staff
+screen has **Check payment with Bakong** (`verify`: one `verifyTxByMd5` call per
+click, settles if paid, a friendly message on error 17) and **Confirm payment
+received** (`approve`, no lookup). The second is the one described next (`KhqrPayment` with `canApprove`, which only
 `app/staff/page.tsx` sets). It asks for a browser confirm, then POSTs
 `/api/invoices/{id}/approve`, which refuses an invoice that is not `PENDING` or
 has passed its TTL and otherwise calls `settleInvoicePaid`.
@@ -451,8 +453,7 @@ md5 checks per token per day**, and it ran out without confirming a single
 payment. The throttle, the quota backoff and the demo Simulate button are gone;
 Confirm payment received replaces all three.
 
-`verifyTxByMd5` remains in `lib/bakong.ts` for `/admin/khqr-test`, which traces
-one md5 by hand. It checks amount and currency and deliberately does **not**
+`verifyTxByMd5` is used only by the Check button and `/admin/khqr-test`. It checks amount and currency and deliberately does **not**
 compare `toAccountId`, because a bank sub-account can settle through a bridge
 account.
 
@@ -706,7 +707,7 @@ cp .env.example .env.local  # then fill it in
 
 No Bakong account is needed to run it: the **Confirm payment received** button
 on the staff screen works with or without a `BAKONG_TOKEN`, so a demo can press it
-without moving money. The token is only used by `/admin/khqr-test`.
+without moving money. The token is used by the Check button and `/admin/khqr-test`.
 
 ---
 
