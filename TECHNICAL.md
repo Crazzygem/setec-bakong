@@ -83,9 +83,9 @@ that many characters. `lib/emv.ts` parses and rebuilds that structure directly.
 There are two ways to produce a bill, and the choice is the heart of the
 problem.
 
-### Path 1: copy the bank's own QR
+### Path 1: copy a static QR
 
-Paste the receive-money QR string from ACLEDA mobile into
+Paste the receive-money QR string of a Bakong wallet into
 `MERCHANT_KHQR_SOURCE`. `dynamicFromStatic` then rewrites only five tags:
 
 | Tag | What it becomes |
@@ -98,8 +98,21 @@ Paste the receive-money QR string from ACLEDA mobile into
 
 Everything else, including every account tag the bank routes on, is preserved
 byte for byte. The CRC is recomputed as CRC-16/CCITT-FALSE over the payload
-including the `6304` marker. This is the reliable path, because the bank already
-accepted that exact string.
+including the `6304` marker.
+
+Which static QR to copy matters, and it was found by scanning, not from the docs.
+Decoding QRs from three apps showed that ACLEDA, ABA and Wing all issue the same
+shape, tag `29` with the bank's shared ID, an account and the bank name, plus a
+private tag of their own (ACLEDA `39` `2CCY`, ABA `40`, Wing `42`, all "Dual"). That
+shape routes inside the issuing bank: an ACLEDA-issued bill opened in ACLEDA and was
+rejected as an invalid QR by ABA. Stripping tag `39` did not change that. A bare
+Bakong wallet ID (`name@bkrt`, tag `29` with sub-tag `00` only) opened in both ABA and
+ACLEDA, and the money is credited straight to the Bakong wallet.
+
+A Bakong wallet holds both KHR and USD, and each bill's tag `53` picks which one is
+credited. The wallet's QR names only KHR, so `MERCHANT_KHQR_CURRENCIES=KHR,USD` tells
+the currency check that both are allowed. Without it a source with no `2CCY` is
+treated as single-currency.
 
 ### Path 2: build it from merchant fields
 
@@ -108,7 +121,7 @@ ID, account, and acquiring bank. This is the fragile path, because a bank app
 rejects the QR if the layout does not match how that bank registered the
 account.
 
-`/admin/khqr-test` exists for this. It generates five variants side by side,
+`/admin/khqr-test` exists for this. It generates variants side by side,
 including one that drops the bank name and one that flips tag 29 to tag 30, and
 decodes a scanned code so you can see the fields the app actually read.
 
@@ -120,7 +133,8 @@ and there is no way to know without testing against the app.
 
 `SHOP_CURRENCY` must match what the receiving account accepts. A USD-only
 account rejects a KHR QR during account inquiry. It presents as "the QR will not
-scan" when it is really a currency mismatch.
+scan" when it is really a currency mismatch. A Bakong wallet takes both, declared
+with `MERCHANT_KHQR_CURRENCIES`.
 
 ### Library choice
 
@@ -152,7 +166,7 @@ The state lives on `globalThis`, so one throttle is shared across route bundles
 and dev reloads rather than being rebuilt per request.
 
 Amount and currency are sanity-checked against the transaction. `toAccountId` is
-deliberately not compared, because ACLEDA sub-accounts settle through a bridge
+deliberately not compared, because a bank sub-account can settle through a bridge
 account, so the destination does not match what you would expect.
 
 The expiry edge case is handled carefully. When the TTL passes, `/check` forces
@@ -229,7 +243,8 @@ impossible. The create loop carries a single retry to cover it anyway.
 **How do you know the right KHQR layout?**
 You do not know from documentation, you test. That is the reason
 `/admin/khqr-test` exists, and it is the most defensible part of the project
-because it is empirical.
+because it is empirical. It is how we found that a bank-routed QR (ACLEDA's) is
+rejected by ABA while a bare Bakong wallet QR opens in both.
 
 **Is the payment secure?**
 A payment is confirmed by an md5 lookup against Bakong, not by trusting the

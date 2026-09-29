@@ -4,7 +4,7 @@ import { createKHQR } from "@manethpak/khqr-sdk";
 import { BakongKHQR, IndividualInfo, MerchantInfo, khqrData } from "bakong-khqr";
 import { dynamicFromStatic, parseTlv } from "@/lib/emv";
 import { majorToMinor, minorToMajor, type Currency } from "@/lib/money";
-import { shopCurrency } from "@/lib/shop";
+import { declaredCurrencies, shopCurrency } from "@/lib/shop";
 
 export interface QRResult {
   qr: string;
@@ -143,6 +143,7 @@ export function generateInvoiceQR(input: {
  * rejects at account inquiry, which looks like a scan failure rather than a mismatch.
  */
 export function sourceAcceptsCurrency(source: string, currency: Currency): boolean {
+  if (declaredCurrencies()?.includes(currency)) return true;
   try {
     const dual = parseTlv(source).some(([t, v]) => t === "39" && v.includes("2CCY"));
     if (dual) return true;

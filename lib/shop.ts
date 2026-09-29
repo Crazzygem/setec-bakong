@@ -10,6 +10,15 @@ export function shopCurrency(): Currency {
 }
 
 /**
+ * MERCHANT_KHQR_CURRENCIES, e.g. "KHR,USD", for accounts with no bank marker in the QR. A
+ * Bakong wallet holds both currencies and the bill's tag 53 picks one, but its QR only names KHR.
+ */
+export function declaredCurrencies(): Currency[] | null {
+  const list = process.env.MERCHANT_KHQR_CURRENCIES?.toUpperCase().split(",").map((c) => c.trim()).filter(isCurrency);
+  return list?.length ? list : null;
+}
+
+/**
  * Reports what the settlement account can accept, at boot. A dual-currency account
  * (ACLEDA tag 39 "2CCY") takes a bill in either currency. A single-currency account
  * fails the other currency at the bank's account inquiry, which presents as a QR that
@@ -18,6 +27,8 @@ export function shopCurrency(): Currency {
 export function describeSettlement(): string {
   const source = process.env.MERCHANT_KHQR_SOURCE?.trim();
   if (!source) return "[khqr] no MERCHANT_KHQR_SOURCE, building QRs from the MERCHANT_ fields";
+  const declared = declaredCurrencies();
+  if (declared) return `[khqr] MERCHANT_KHQR_CURRENCIES is ${declared.join(", ")}, bills can be charged in those`;
   if (source.includes("2CCY")) return "[khqr] MERCHANT_KHQR_SOURCE is 2CCY, bills can be charged in KHR or USD";
   const usd = source.includes("5303840");
   const single = usd ? "USD" : "KHR";

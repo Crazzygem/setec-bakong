@@ -3,6 +3,7 @@ import { BakongKHQR } from "bakong-khqr";
 import { buildKhqr, decodeKhqr, khqrFromSource, merchantKhqrDefaults, type KhqrOptions, type QRGenResult } from "@/lib/bakong";
 import { parseTlv } from "@/lib/emv";
 import { isCurrency, type Currency } from "@/lib/money";
+import { declaredCurrencies } from "@/lib/shop";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ type Variant = "pos" | "static" | "no-bank" | "merchant" | "custom" | "mirror";
  * those take either currency. Any other bank QR is kept in the currency it names.
  */
 function currencyForSource(source: string, requested: Currency): Currency {
+  if (declaredCurrencies()?.includes(requested)) return requested;
   const tags = parseTlv(source);
   if (tags.some(([t, v]) => t === "39" && v.includes("2CCY"))) return requested;
   const code = tags.find(([t]) => t === "53")?.[1];
