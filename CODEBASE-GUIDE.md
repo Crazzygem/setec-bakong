@@ -257,9 +257,11 @@ parts do that:
 
 `sourceAcceptsCurrency` guards the last step. A single-currency account fails
 the other currency at the bank's account inquiry, which looks like a QR that will
-not scan, so the route returns a clear 422 instead. Our ACLEDA account carries
-tag `39` `2CCY`, which accepts both, and the bank routes by whatever the guest
-pays in.
+not scan, so the route returns a clear 422 instead. A Bakong wallet holds both
+KHR and USD and tag `53` picks the one credited, but its QR names only KHR, so
+`MERCHANT_KHQR_CURRENCIES=KHR,USD` (read by `declaredCurrencies` in
+`lib/shop.ts`) declares both. A bank QR that marks its own dual-currency account,
+like ACLEDA's tag `39` `2CCY`, needs no setting.
 
 ### Rounding is always up (slide: money)
 
@@ -305,8 +307,8 @@ two-digit tag, a two-digit length, then that many characters.
 
 ### Two ways to build a bill
 
-**Path 1, copy the bank's own QR (the reliable one).** Paste the receive-money
-QR string from ACLEDA mobile into `MERCHANT_KHQR_SOURCE`. `dynamicFromStatic`
+**Path 1, copy a static QR (the reliable one).** Paste the receive-money QR
+string of a Bakong wallet into `MERCHANT_KHQR_SOURCE`. `dynamicFromStatic`
 rewrites only five tags and keeps every other byte:
 
 | Tag | Becomes |
@@ -317,8 +319,15 @@ rewrites only five tags and keeps every other byte:
 | `62` | sub-tag `01`, the bill number |
 | `99` | sub-tags `00` and `01`, initiated and expiry, in ms |
 
-Then it recomputes the CRC. This works because the bank already accepted that
-exact string, so every account tag is exactly what it expects.
+Then it recomputes the CRC. Every account tag is kept exactly as issued.
+
+**Which static QR you copy decides who can pay.** Decoding QRs from ACLEDA, ABA
+and Wing showed the same shape: tag `29` with the bank's shared ID, an account
+and the bank name, plus a private tag (ACLEDA `39` `2CCY`, ABA `40`, Wing `42`).
+That shape routes inside the issuing bank. A bill copied from ACLEDA's QR opened
+in ACLEDA but ABA said invalid QR, and stripping tag `39` changed nothing. A bare
+Bakong wallet ID (`name@bkrt`, tag `29` with sub-tag `00` only) opened in both,
+and the money is credited straight to the Bakong wallet. So use the wallet QR.
 
 **Path 2, build from merchant fields (the fragile one).** Without
 `MERCHANT_KHQR_SOURCE`, NBC's official SDK builds the QR from the Bakong ID,
@@ -440,7 +449,7 @@ const QUOTA_ERROR_CODE = 17;       // Bakong's "quota gone" code
   across route bundles and dev reloads instead of being rebuilt per request.
 
 `verifyTxByMd5` checks amount and currency as sanity checks. It deliberately
-does **not** compare `toAccountId`, because ACLEDA sub-accounts settle through a
+does **not** compare `toAccountId`, because a bank sub-account can settle through a
 bridge account, so the destination does not match what you would expect.
 
 ### The edge cases that matter
@@ -502,10 +511,10 @@ footer in print.
 Section 6. Five variants, an amount box, a scanner, and it prints the exact
 `.env` lines that produced the QR.
 
-`currencyForSource` is a real detail: ACLEDA marks dual-currency accounts with
-tag 39 containing `2CCY`, and those accept either currency. Any other bank QR is
-kept in the currency it names, because overwriting it produces a QR that looks
-right and fails.
+`currencyForSource` is a real detail: a currency named in `MERCHANT_KHQR_CURRENCIES`
+is honoured, and so are ACLEDA dual-currency accounts (tag 39 containing `2CCY`).
+Any other bank QR is kept in the currency it names, because overwriting it
+produces a QR that looks right and fails.
 
 ### Components
 
@@ -716,9 +725,10 @@ set, simulation is off unless `SIMULATE_PAYMENTS=true` is set again on purpose.
    `app/api/bookings/[id]/invoices/route.ts` → `components/khqr-payment.tsx` →
    `app/(site)/admin/khqr-test/page.tsx`.
 3. **Decode a real QR** (10 min): open `/admin/khqr-test`, use the scanner on
-   your own ACLEDA receive-money code, and read the fields. Compare tag 29 or
-   30, tag 39 `2CCY`, and tag 53 against the POS variant. This is the single
-   most useful ten minutes you can spend.
+   a receive-money code from ACLEDA, ABA and your Bakong wallet, and read the
+   fields. Compare tag 29 or 30, the bank's private tag (39, 40, 42), and tag 53
+   against the POS variant. This is the single most useful ten minutes you can
+   spend.
 4. **Break something on purpose** (10 min): set `SHOP_CURRENCY=USD` with a KHR
    source QR, restart, and see the currency-mismatch error. Then set
    `MIN_GAP_MS` in `lib/payments.ts` to `15_000_000` and watch the payment
@@ -748,5 +758,7 @@ set, simulation is off unless `SIMULATE_PAYMENTS=true` is set again on purpose.
 | WAL | Write-Ahead Logging, SQLite's faster and safer journal mode |
 | `globalThis` | Shared state across route bundles and dev reloads |
 | jsQR | The library that reads a QR from the phone camera in the test bench |
-| ACLEDA | Cambodia's main bank, whose app the QRs are scanned with |
+| ACLEDA | Cambodian bank; its own QR only opens in its app, ABA rejects it |
 | `2CCY` | Tag 39 marker on ACLEDA dual-currency accounts; accepts KHR or USD |
+| `bkrt` | Bakong wallet suffix in `name@bkrt`; the QR that every bank app opens |
+| `MERCHANT_KHQR_CURRENCIES` | Env list of currencies the account takes, e.g. `KHR,USD` |
