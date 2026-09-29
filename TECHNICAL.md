@@ -121,7 +121,7 @@ ID, account, and acquiring bank. This is the fragile path, because a bank app
 rejects the QR if the layout does not match how that bank registered the
 account.
 
-`/admin/khqr-test` exists for this. It generates variants side by side,
+`/admin/khqr-test` exists for this. It generates five variants side by side,
 including one that drops the bank name and one that flips tag 29 to tag 30, and
 decodes a scanned code so you can see the fields the app actually read.
 
