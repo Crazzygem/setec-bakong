@@ -149,30 +149,29 @@ code and validated with the official library.
 
 ## Confirming payment
 
+Staff confirm payments by hand. The staff screen shows **Confirm payment received**
+under the QR; it POSTs `/api/invoices/[id]/approve`, which runs `settleInvoicePaid`
+(after a browser confirm dialog) and refuses an invoice that is not `PENDING` or has
+passed its TTL.
+
 The browser polls `/api/invoices/[id]/check` every 3 seconds, and ticks a
-1-second local timer purely for the countdown display so the clock stays smooth
-between polls.
+1-second local timer purely for the countdown display. `/check` reads the local
+database only: it reports the status and marks the invoice `EXPIRED` once the TTL
+passes. It never calls Bakong, so polling is free.
 
-The server does the real work in `lib/payments.ts`. Bakong's Open API allows
-**100 md5 checks per token per day**, so:
+This replaced automatic confirmation. The old version called Bakong's
+`check_transaction_by_md5` on every poll (throttled to one call per invoice every
+15 seconds) and still used up the API's 100-checks-per-token-per-day limit without
+confirming a payment. Cancel, expiry and re-billing no longer look anything up either.
 
-- `MIN_GAP_MS = 15_000` between real checks per invoice
-- a `force` flag for one-off decisions that must ask now: cancel, expiry, and
-  re-billing
-- on error code `17`, stop checking entirely until midnight in Phnom Penh,
-  computed with a UTC+7 offset
+`verifyTxByMd5` remains in `lib/bakong.ts` for the `/admin/khqr-test` page, which
+traces one md5 by hand; each click there costs one call. It checks amount and currency
+and deliberately does not compare `toAccountId`, because a bank sub-account can settle
+through a bridge account.
 
-The state lives on `globalThis`, so one throttle is shared across route bundles
-and dev reloads rather than being rebuilt per request.
-
-Amount and currency are sanity-checked against the transaction. `toAccountId` is
-deliberately not compared, because a bank sub-account can settle through a bridge
-account, so the destination does not match what you would expect.
-
-The expiry edge case is handled carefully. When the TTL passes, `/check` forces
-one final Bakong lookup before expiring the invoice, so a payment made at 4:59
-still settles. `/cancel` does the same, so staff can never void a bill that was
-actually paid.
+The trade-off: the guest is not confirmed until staff press the button, and a payment
+made just before the five-minute TTL can expire before staff confirm it. Staff should
+confirm promptly, and make a new QR if it has closed.
 
 ## The invoice snapshot
 
@@ -193,17 +192,12 @@ check-in grant, and that time is already inside `ends_at`, so it must not extend
 the stay again. `initialRoomLineId` finds it and excludes it from `extendHours`.
 
 Two other protections in that route: retrying returns the still-open QR instead
-of minting a second bill, and an expired but possibly paid invoice is
-force-checked before a new one is created, so a late payment is never billed
-twice.
+of minting a second bill. An expired invoice is closed before a new one is created.
 
 ## Demo mode
 
-With no `BAKONG_TOKEN`, `liveVerificationEnabled()` is false and the payment
-screen shows a Simulate button that marks an invoice paid without moving money.
-Setting a token disables it, and it takes an explicit `SIMULATE_PAYMENTS=true`
-on top of that to re-enable, so a real deployment cannot be demoed into by
-accident.
+There is no separate demo mode. The Confirm payment received button works with or
+without a `BAKONG_TOKEN`, so a class demo can press it without moving any money.
 
 ## Deployment
 
@@ -221,10 +215,11 @@ likely thing to be flagged in review. Present it as known scope for a class
 project, and put it behind a private network or an access proxy before any
 public deploy.
 
-**The daily md5 quota is a hard ceiling.** A busy shop exceeds 100 checks per
-day, and the honest consequence is that payments stop auto-confirming until
-midnight. A production system would need a webhook or a bulk reconciliation,
-neither of which this public API offers here.
+**Payments are confirmed by hand.** The Bakong API allows only 100 md5 checks per
+token per day, so automatic confirmation ran out of quota without confirming anything
+and was removed. The button has no authentication, like the rest of `/staff`, and
+trusts the staff member. A production system would need a webhook or a bulk
+reconciliation, neither of which this public API offers here.
 
 ## Questions to expect
 

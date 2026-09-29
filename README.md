@@ -39,9 +39,10 @@ npm run dev
 
 Open http://localhost:3000. `.env.example` documents every variable.
 
-With no `BAKONG_TOKEN` set, the app runs in demo mode and the payment screen offers a
-Simulate button that marks an invoice paid without moving money. Setting a token turns
-simulation off unless `SIMULATE_PAYMENTS=true` is set on purpose.
+Payments are confirmed by hand. The staff screen shows a **Confirm payment received**
+button under the QR: check that the money arrived in the Bakong app, then press it. The
+guest's screen flips to paid once staff confirm. The app never polls Bakong, so
+`BAKONG_TOKEN` is optional and only the `/admin/khqr-test` page uses it.
 
 ## Charging in riel or dollars
 
@@ -87,10 +88,10 @@ Two details worth knowing before you debug a QR that will not scan:
 - `SHOP_CURRENCY` must match what the receiving bank account accepts. A USD-only account
   rejects a KHR QR at account inquiry, which looks like a scan failure but is not.
 
-Invoice QRs expire after five minutes. The browser polls `/check` every three seconds;
-the server spaces real Bakong lookups at least 15 seconds apart per invoice, because
-Bakong allows 100 md5 checks per token per day. Hitting that quota returns error code 17,
-and the app stops checking until midnight in Phnom Penh.
+Invoice QRs expire after five minutes, so confirm within that window. The browser polls
+`/check` every three seconds, but that reads only the local database. It never calls
+Bakong. An earlier version checked Bakong automatically, and its 100-checks-per-token-per-day
+limit ran out without confirming a single payment.
 
 ## Deployment
 
