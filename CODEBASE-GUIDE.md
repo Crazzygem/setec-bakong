@@ -232,9 +232,59 @@ alongside the shop-wide `SHOP_CURRENCY`.
 
 Why: switch the shop to USD and already-closed bills must still show the riel
 they were charged in. `syncPriceCurrency` re-prices rooms, menu, and only
-`UNBILLED` lines. Billed history is untouched. And the invoice route refuses to
-bill a booking whose unbilled lines are in mixed currencies, with the message
-"The bill mixes currencies. Restart the server to re-price it."
+`UNBILLED` lines. Billed history is untouched. The invoice route still refuses a
+booking whose unbilled lines are in mixed currencies, but that can now only
+happen on a booking left over from a currency change.
+
+### Staff choose the currency to charge (slide: the POS)
+
+A guest who asks to pay in dollars is not turned away. On the POS, next to
+"Charge with KHQR", there is a two-button toggle, `៛ Riel` and `$ US Dollar`,
+with `aria-pressed` on the active one. Staff pick, not the guest: the guest's own
+pay button sends no currency and the server falls back to `SHOP_CURRENCY`.
+
+The tab is priced in the shop currency, so the other option converts it. Three
+parts do that:
+
+1. `app/staff/page.tsx` `BillPanel` calls `toBillAmount` on every render, so the
+   total and the button label update as staff toggle. It shows the riel original
+   under the figure when the two differ.
+2. `app/api/bookings/[id]/invoices/route.ts` reads `currency` from the body and
+   converts again, server-side. The client figure is a preview; the invoice total
+   is whatever the server computed.
+3. `lib/bakong.ts` `generateInvoiceQR` takes the currency, so tag `53` in the QR
+   is `840` for a dollar bill and `116` for a riel bill.
+
+`sourceAcceptsCurrency` guards the last step. A single-currency account fails
+the other currency at the bank's account inquiry, which looks like a QR that will
+not scan, so the route returns a clear 422 instead. Our ACLEDA account carries
+tag `39` `2CCY`, which accepts both, and the bank routes by whatever the guest
+pays in.
+
+### Rounding is always up (slide: money)
+
+`toBillAmount` in `lib/money.ts` rounds the price up, and a riel price is always
+a whole 100:
+
+| Tab | Charged | Extra |
+|---|---|---|
+| ៛3,300 | $0.83 | 20 riel |
+| $0.83 | ៛3,400 | 80 riel |
+| ៛4,000 | $1.00 | none |
+| $8.25 | ៛33,000 | none |
+
+Rounding up means the shop is never short. Worst case is 20 riel going one way
+and 99 the other, both under half a cent.
+
+Two details to know if asked:
+
+- **`toBillAmount` is not `convertMinor`.** `convertMinor` re-prices the menu and
+  has a $1.00 floor, which would turn a $0.75 tab into a $1.00 charge. A billing
+  function must never inflate a small bill, so it has no floor.
+- **The `1e-9` in the `Math.ceil` calls.** `83 * 40` lands at `3300.0000000000005`,
+  which without the epsilon would round up a whole extra step and charge ៛3,400
+  for an exact ៛3,300. This is float noise in the same family as the `toFixed` in
+  `minorToMajor`.
 
 ---
 
@@ -623,7 +673,8 @@ out.
 | **The 100-checks-per-day quota** | A busy day exhausts it and payments stop auto-confirming until midnight. A real system needs a webhook or a bulk reconciliation, which this public API does not offer. |
 | **`/admin` is public** | Same as the first row. Room rates, menu prices and booking history are all readable. |
 | **SQLite** | Fine for one cinema. For many simultaneous users, move to PostgreSQL. `lib/db.ts` is the only file to change. |
-| **Single currency per booking** | A booking cannot be part-paid in riel and part in dollars. The invoice route refuses mixed bills and says so. |
+| **One bill per booking, one currency** | Staff can charge in either riel or dollars, but a booking is settled by one invoice in one currency. There is no part-payment, and a booking whose unbilled lines span two currencies is refused. |
+| **The 4,000 rate is fixed** | A constant in `lib/money.ts`, not a live market rate. Rounding is always up, so the shop is never short, and a small bill can pick up a little rounding. |
 | **Prices are hand-set** | There is no peak-hour pricing or occupancy-based rates. Hourly rate is one number per room. |
 | **`convertMinor` uses a fixed 4000** | Only used when re-pricing after a `SHOP_CURRENCY` change, never for a live payment, so the rate being approximate is not a payment risk. |
 | **Khmer UI text** | The interface is in English. Khmer would be the next thing to do. |

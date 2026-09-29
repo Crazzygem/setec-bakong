@@ -40,31 +40,38 @@ export function convertMinor(minor: number, from: Currency, to: Currency): numbe
   return Math.max(100, Math.round(((minor / 100) * KHR_PER_USD) / 100) * 100);
 }
 
+/** A riel price is always a whole 100 riel, never an odd amount. */
+export const KHR_STEP = 100;
+
 /** What the guest is charged when a tab is billed in `to`. */
 export interface BillConversion {
   /** Minor units in `to`, what the invoice total must be. */
   total: number;
   /** The tab total in `to` before rounding, so the UI can show where the difference came from. */
   exact: number;
-  /** true when `to` had fewer minor units and the total was rounded to a payable amount. */
+  /** true when the price was rounded up to a payable amount. */
   rounded: boolean;
 }
 
 /**
- * Converts a tab total into the currency the guest is paying in. One cent is 40 riel,
- * so a riel total only divides exactly into dollars when it is a multiple of 40; the
- * nearest cent is off by at most 20 riel. Unlike convertMinor there is no minimum,
- * because a small tab billed in dollars must not be inflated into a bigger bill.
+ * Converts a tab total into the currency the guest is paying in, rounding the price UP so
+ * the shop is never short and the guest is never charged less than the rate. A riel price
+ * is a whole 100, so a dollar bill lands on a 100 riel step: $0.83 is 3,320 riel, charged
+ * as 3,400. The other way, one cent is 40 riel, so a riel tab does not always divide into
+ * cents: ៛300 is 7.5 cents, charged as 8. Unlike convertMinor there is no inflation floor,
+ * because a small tab billed in dollars must not be turned into a bigger bill.
  */
 export function toBillAmount(minor: number, from: Currency, to: Currency): BillConversion {
   if (from === to) return { total: minor, exact: minorToMajor(minor, from), rounded: false };
   if (to === "USD") {
     const exact = (minor / KHR_PER_USD) * 100;
-    const total = Math.max(1, Math.round(exact));
+    // The epsilon keeps an exact figure like 3300 from floating to 3300.0000000000005 and
+    // then rounding up a whole cent.
+    const total = Math.max(1, Math.ceil(exact - 1e-9));
     return { total, exact, rounded: total !== exact };
   }
   const exact = (minor / 100) * KHR_PER_USD;
-  const total = Math.max(1, Math.round(exact));
+  const total = Math.max(KHR_STEP, Math.ceil(exact / KHR_STEP - 1e-9) * KHR_STEP);
   return { total, exact, rounded: total !== exact };
 }
 

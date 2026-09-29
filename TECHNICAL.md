@@ -47,8 +47,33 @@ Each tab line and each invoice carries its own currency, in addition to the
 shop-wide `SHOP_CURRENCY`. This is deliberate. Switch the shop to USD and
 already-closed bills must still show the riel they were charged in.
 `syncPriceCurrency` re-prices rooms, the menu, and only `UNBILLED` lines when
-the shop currency changes, and the invoice route refuses to build a bill that
-mixes currencies.
+the shop currency changes. The invoice route refuses to build a bill whose
+unbilled lines mix currencies, which can only happen on a booking that predates
+a currency change.
+
+### Charging in the other currency
+
+Staff pick the currency at the till, so a guest who asks to pay in dollars is
+not turned away. The tab is priced in the shop currency and converted once, in
+`toBillAmount` in `lib/money.ts`, at 4,000 riel to the dollar.
+
+The price is always rounded **up**, and a riel price is always a whole 100, so:
+
+- `៛3,300` is $0.825, charged as **$0.83**, 20 riel extra
+- `$0.83` is ៛3,320, charged as **៛3,400**, 80 riel extra
+
+Rounding up means the shop is never short and the guest is never charged below
+the rate. The worst case is 20 riel going to dollars, and 99 riel coming the
+other way, both under half a cent.
+
+`toBillAmount` is separate from `convertMinor` on purpose. `convertMinor` is
+used when re-pricing the menu after a currency change, and it has a $1.00 floor
+that would turn a $0.75 tab into a $1.00 charge. A billing function must never
+inflate a small bill, so it has no floor, only a 1 cent minimum.
+
+`1e-9` appears in both `Math.ceil` calls because `83 * 40` can land at
+`3300.0000000000005`, which would round a whole extra step. The epsilon makes an
+exact figure stay exact.
 
 ## KHQR generation
 

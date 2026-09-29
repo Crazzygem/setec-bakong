@@ -43,6 +43,21 @@ With no `BAKONG_TOKEN` set, the app runs in demo mode and the payment screen off
 Simulate button that marks an invoice paid without moving money. Setting a token turns
 simulation off unless `SIMULATE_PAYMENTS=true` is set on purpose.
 
+## Charging in riel or dollars
+
+Prices are set in the shop currency, `SHOP_CURRENCY`. At the till, staff can charge a bill
+in either currency: the POS has a `៛ Riel` / `$ US Dollar` toggle next to the charge
+button, and the guest's own pay button uses the shop currency. The tab total is converted
+once at 4,000 riel to the dollar, and the invoice records the currency it was charged in.
+
+The price is always rounded up, and a riel price is always a whole 100, so ៛3,300 bills as
+$0.83 and $0.83 bills as ៛3,400. Rounding up means the shop is never short.
+
+This only works if the settlement account takes both currencies. ACLEDA marks dual-currency
+accounts with tag `39` set to `2CCY`, and the bank then routes by whatever the guest pays
+in. The app logs the account's capability at boot, and refuses a bill in a currency the
+account cannot take rather than producing a QR that will not scan.
+
 ## KHQR generation
 
 The QR for an invoice can be built two ways, and `MERCHANT_KHQR_SOURCE` decides which:
