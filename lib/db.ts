@@ -467,6 +467,34 @@ export function addSnackItem(bookingId: string, menuItemId: string, qty: number)
   return row;
 }
 
+/**
+ * Staff correcting a mistake at the counter: takes one unit off a line, and voids
+ * the line once the last unit goes. Voids rather than deletes so a paid-then-
+ * disputed line still has a record. Refuses while a QR is open, because that code
+ * already carries the old total, and refuses anything not yet unpaid.
+ */
+export function removeTabItem(bookingId: string, itemId: string): TabItemRow {
+  const d = getDb();
+  return d.transaction((): TabItemRow => {
+    activeBooking(d, bookingId);
+    const item = d.prepare("SELECT * FROM tab_items WHERE id = ? AND booking_id = ?").get(itemId, bookingId) as
+      | TabItemRow
+      | undefined;
+    if (!item) throw fail("That line is not on this bill.", 404);
+    if (item.state === "VOID") throw fail("That line is already removed.", 409);
+    if (item.state === "BILLED")
+      throw fail("That line is already paid. Refund it by hand rather than removing it.", 409);
+    const open = d
+      .prepare("SELECT 1 FROM invoices WHERE booking_id = ? AND status = 'PENDING' AND expires_at > ? LIMIT 1")
+      .get(bookingId, Date.now());
+    if (open) throw fail("Cancel the open payment QR first, then change the bill.", 409);
+
+    if (item.qty > 1) d.prepare("UPDATE tab_items SET qty = qty - 1 WHERE id = ?").run(itemId);
+    else d.prepare("UPDATE tab_items SET state = 'VOID' WHERE id = ?").run(itemId);
+    return d.prepare("SELECT * FROM tab_items WHERE id = ?").get(itemId) as TabItemRow;
+  })();
+}
+
 export function addExtendHours(bookingId: string, hours: number): TabItemRow {
   const d = getDb();
   const booking = activeBooking(d, bookingId);

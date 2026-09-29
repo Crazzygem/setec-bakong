@@ -218,6 +218,14 @@ export default function StaffPos() {
     await refreshDetail();
   }
 
+  async function removeLine(itemId: string) {
+    if (!detail?.booking) return;
+    await run(() =>
+      fetch(`/api/bookings/${detail.booking!.id}/items/${itemId}`, { method: "DELETE" }),
+    );
+    await refreshDetail();
+  }
+
   async function charge() {
     if (!detail?.booking) return;
     const data = await run(() =>
@@ -658,6 +666,7 @@ export default function StaffPos() {
                 onSettled={onSettled}
                 onCancel={() => setCheckout({ kind: "idle" })}
                 onDone={() => setCheckout({ kind: "idle" })}
+                onRemoveLine={removeLine}
               />
             ) : (
               <div className="grid flex-1 place-items-center p-6 text-center text-sm text-muted">
@@ -684,6 +693,7 @@ function BillPanel({
   onSettled,
   onCancel,
   onDone,
+  onRemoveLine,
 }: {
   detail: Detail;
   checkout: Checkout;
@@ -695,6 +705,7 @@ function BillPanel({
   onSettled: (s: "PAID" | "EXPIRED") => void;
   onCancel: () => void;
   onDone: () => void;
+  onRemoveLine: (itemId: string) => void;
 }) {
   const money = useMoney();
   const shop = useShopCurrency();
@@ -753,17 +764,42 @@ function BillPanel({
             Nothing to pay. Add snacks or hours and they appear here.
           </p>
         ) : (
-          <ul className="mt-3 space-y-2 text-sm">
+          <ul className="mt-3 space-y-1 text-sm">
             {unbilled.map((l) => (
-              <li key={l.id} className="flex justify-between gap-3">
-                <span>
+              <li key={l.id} className="group flex items-center justify-between gap-2">
+                <span className="min-w-0 py-1">
                   {l.label}
                   {l.kind === "SNACK" && l.qty > 1 && (
                     <span className="text-muted"> × {l.qty}</span>
                   )}
                 </span>
-                <span className="tabular-nums">
-                  {money(l.qty * l.unit_price, l.currency)}
+                <span className="flex shrink-0 items-center gap-1">
+                  <span className="tabular-nums">
+                    {money(l.qty * l.unit_price, l.currency)}
+                  </span>
+                  {/* Two targets: step one unit off, or drop the whole line. */}
+                  {l.qty > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveLine(l.id)}
+                      disabled={busy}
+                      aria-label={`Remove one ${l.label}`}
+                      className="grid h-11 w-11 place-items-center rounded-sm text-muted hover:bg-surface-soft hover:text-ink disabled:opacity-40"
+                    >
+                      <span aria-hidden>−</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemoveLine(l.id)}
+                    disabled={busy}
+                    aria-label={`Remove ${l.label}${l.qty > 1 ? `, all ${l.qty}` : ""} from the bill`}
+                    className="grid h-11 w-11 place-items-center rounded-sm text-muted hover:bg-surface-soft hover:text-error disabled:opacity-40"
+                  >
+                    <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-4 w-4">
+                      <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
+                    </svg>
+                  </button>
                 </span>
               </li>
             ))}
@@ -796,9 +832,7 @@ function BillPanel({
         </div>
         {chargeCurrency !== tabCurrency && (
           <p className="text-center text-sm text-muted">
-            {money(detail.unbilledTotal, tabCurrency)} at 4,000 riel to the
-            dollar
-            {converted.rounded && ", rounded to the nearest cent"}
+            {money(detail.unbilledTotal, tabCurrency)} for the items above
           </p>
         )}
         <div role="group" aria-label="Charge in" className="flex gap-2">
