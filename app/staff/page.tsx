@@ -712,7 +712,7 @@ function BillPanel({
   const unbilled = detail.tab.filter((l) => l.state === "UNBILLED");
   const billed = detail.tab.filter((l) => l.state === "BILLED");
   const canClose = detail.unbilledTotal === 0 && checkout.kind !== "qr";
-  // The tab is priced in the shop currency; showing the other one means converting it.
+  // The tab is priced in the shop currency; charging the other one converts it.
   const tabCurrency = unbilled[0]?.currency ?? shop;
   const converted = toBillAmount(
     detail.unbilledTotal,
@@ -830,11 +830,6 @@ function BillPanel({
             {money(converted.total, chargeCurrency)}
           </span>
         </div>
-        {chargeCurrency !== tabCurrency && (
-          <p className="text-center text-sm text-muted">
-            {money(detail.unbilledTotal, tabCurrency)} for the items above
-          </p>
-        )}
         <div role="group" aria-label="Charge in" className="flex gap-2">
           {(["KHR", "USD"] as Currency[]).map((c) => {
             const on = chargeCurrency === c;
