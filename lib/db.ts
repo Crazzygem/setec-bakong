@@ -187,6 +187,16 @@ function migrateFromKhrOnly(d: Database.Database): void {
   `);
 }
 
+/** Small runtime switches kept in the meta table, so the admin page can change them without a restart. */
+export function getSetting(key: string): string | null {
+  const row = getDb().prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  getDb().prepare("INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)").run(key, value);
+}
+
 /** Re-prices rooms, menu and not-yet-billed lines when SHOP_CURRENCY changes. */
 function syncPriceCurrency(d: Database.Database): void {
   const row = d.prepare("SELECT value FROM meta WHERE key = 'price_currency'").get() as { value: string } | undefined;

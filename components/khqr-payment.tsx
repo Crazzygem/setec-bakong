@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { generateKHQRSVG, svgToDataURI } from "@manethpak/khqr-sdk/svg";
 import { formatMoney, type Currency } from "@/lib/money";
 import { Button } from "@/components/ui";
@@ -45,30 +45,37 @@ async function savePng(svgDataUri: string, filename: string) {
 }
 
 /**
- * One dynamic KHQR invoice: shows the QR, counts down, and polls /check (local status,
- * no Bakong call) until staff approve the payment or it expires. Key it by invoiceId so
- * timers reset.
+ * One dynamic KHQR invoice: shows the QR, counts down, and polls /check until staff confirm
+ * the payment, auto-check finds it, or it expires. Key it by invoiceId so timers reset.
+ *
+ * The guest version is a centered column. The staff version fills its panel: content on top,
+ * actions in a footer under a rule, the same shape as the bill panel it replaces.
  */
 export function KhqrPayment({
   invoiceId,
   onSettled,
   onCancel,
   showSave = false,
-  canApprove = false,
+  staff = false,
+  settledFooter,
 }: {
   invoiceId: string;
   onSettled?: (status: Exclude<InvoiceStatus, "PENDING">) => void;
   onCancel?: () => void;
   /** For a customer paying on the same phone that shows the QR. */
   showSave?: boolean;
-  /** Staff only: shows the button that confirms the money arrived. */
-  canApprove?: boolean;
+  /** Staff panel: left-aligned layout with the check, confirm and cancel actions. */
+  staff?: boolean;
+  /** Staff panel: actions shown once the invoice is paid or closed. */
+  settledFooter?: ReactNode;
 }) {
   const [inv, setInv] = useState<Invoice | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [auto, setAuto] = useState(false);
+  const [quotaBlocked, setQuotaBlocked] = useState(false);
   const settledRef = useRef(onSettled);
   const firedRef = useRef(false);
   useEffect(() => {
@@ -111,6 +118,8 @@ export function KhqrPayment({
       const res = await fetch(`/api/invoices/${encodeURIComponent(invoiceId)}/check`).catch(() => null);
       if (!res?.ok) return;
       const data = await res.json();
+      setAuto(!!data.auto);
+      setQuotaBlocked(!!data.quotaBlocked);
       applyStatus(data.status);
     }, POLL_MS);
     return () => {
@@ -157,6 +166,95 @@ export function KhqrPayment({
   const amount = formatMoney(inv.total, inv.currency);
   const ref = inv.md5.slice(0, 8).toUpperCase();
 
+  const left = inv.expiresAt - now;
+
+  if (staff) {
+    const confirm = () => {
+      if (window.confirm(`Confirm you received ${amount} in the Bakong app?`)) post("approve");
+    };
+    const settled = inv.status !== "PENDING";
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex-1 p-5 md:p-6 lg:overflow-y-auto">
+          {inv.status === "PAID" && (
+            <div role="status" className="flex items-center gap-4">
+              <svg aria-hidden viewBox="0 0 48 48" className="h-12 w-12 shrink-0">
+                <circle cx="24" cy="24" r="22" fill="none" stroke="currentColor" strokeWidth="3" />
+                <path d="M14 25l7 7 13-15" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <div>
+                <p className="text-lg font-semibold">Paid {amount}</p>
+                <p className="text-sm text-muted">
+                  Reference <span className="font-medium text-ink tabular-nums">{ref}</span>
+                </p>
+              </div>
+            </div>
+          )}
+          {inv.status === "EXPIRED" && (
+            <div role="status">
+              <p className="text-lg font-semibold">This QR has closed</p>
+              <p className="mt-1 text-sm text-muted">No payment of {amount} arrived. Make a new QR to try again.</p>
+            </div>
+          )}
+          {!settled && (
+            <>
+              <p className="text-sm font-medium text-muted">Guest scans to pay</p>
+              <div className="mt-1 flex items-baseline justify-between gap-4">
+                <p className="text-[28px] font-bold leading-tight tabular-nums">{amount}</p>
+                <p className="shrink-0 text-sm text-muted">
+                  Closes in{" "}
+                  <span className={`font-semibold tabular-nums ${left < 60_000 ? "text-error" : "text-ink"}`}>{mmss(left)}</span>
+                </p>
+              </div>
+              {qrImg ? (
+                <img src={qrImg} alt={`KHQR code for ${amount}`} className="mx-auto mt-5 w-full max-w-[280px]" />
+              ) : (
+                <p className="mt-5 font-mono text-xs break-all">{inv.qr}</p>
+              )}
+              {error && (
+                <p role="alert" className="mt-4 text-sm text-error">
+                  {error}
+                </p>
+              )}
+              {notice && (
+                <p role="status" className="mt-4 text-sm text-muted">
+                  {notice}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+        <div className="space-y-2 border-t border-hairline p-5 md:p-6">
+          {settled ? (
+            settledFooter
+          ) : (
+            <>
+              {auto ? (
+                <p role="status" className="pb-1 text-sm text-muted">
+                  {quotaBlocked
+                    ? "Bakong's daily limit is used up. Confirm the payment yourself once you see it."
+                    : "Checking Bakong automatically. This closes on its own once the transfer arrives."}
+                </p>
+              ) : (
+                <Button className="w-full" onClick={() => post("verify")} disabled={busy}>
+                  Check payment with Bakong
+                </Button>
+              )}
+              <Button className="w-full" variant={auto && quotaBlocked ? "primary" : "secondary"} onClick={confirm} disabled={busy}>
+                Confirm payment received
+              </Button>
+              {onCancel && (
+                <Button className="w-full" variant="tertiary" size="sm" onClick={() => post("cancel")} disabled={busy}>
+                  Cancel this QR
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (inv.status === "PAID")
     return (
       <div className="py-6 text-center" role="status">
@@ -179,8 +277,6 @@ export function KhqrPayment({
       </div>
     );
 
-  const left = inv.expiresAt - now;
-
   return (
     <div className="flex flex-col items-center">
       <p className="text-[28px] font-bold leading-tight tabular-nums">{amount}</p>
@@ -193,50 +289,22 @@ export function KhqrPayment({
         Scan with any Cambodian bank app. Closes in{" "}
         <span className={`font-semibold tabular-nums ${left < 60_000 ? "text-error" : "text-ink"}`}>{mmss(left)}</span>
       </p>
-      {!canApprove && (
-        <p className="mt-1 text-center text-sm text-muted">This screen updates once the shop confirms your payment.</p>
-      )}
+      <p className="mt-1 text-center text-sm text-muted">This screen updates once the shop confirms your payment.</p>
       {error && (
         <p role="alert" className="mt-3 text-sm text-error">
           {error}
         </p>
       )}
-      {notice && (
-        <p role="status" className="mt-3 text-center text-sm text-muted">
-          {notice}
-        </p>
-      )}
-      <div className="mt-5 flex w-full max-w-[320px] flex-col gap-2">
-        {showSave && qrImg && (
-          <Button variant="secondary" onClick={() => savePng(qrImg, `khqr-${ref}.png`)}>
-            Save QR image
-          </Button>
-        )}
-        {showSave && (
+      {showSave && (
+        <div className="mt-5 flex w-full max-w-[320px] flex-col gap-2">
+          {qrImg && (
+            <Button variant="secondary" onClick={() => savePng(qrImg, `khqr-${ref}.png`)}>
+              Save QR image
+            </Button>
+          )}
           <p className="text-center text-sm text-muted">On this phone? Save the image, then pick it from your bank app&apos;s scan screen.</p>
-        )}
-        {onCancel && (
-          <Button variant="secondary" onClick={() => post("cancel")} disabled={busy}>
-            Cancel this QR
-          </Button>
-        )}
-        {canApprove && (
-          <Button onClick={() => post("verify")} disabled={busy}>
-            Check payment with Bakong
-          </Button>
-        )}
-        {canApprove && (
-          <Button
-            variant="secondary"
-            onClick={() => {
-              if (window.confirm(`Confirm you received ${amount} in the Bakong app?`)) post("approve");
-            }}
-            disabled={busy}
-          >
-            Confirm payment received
-          </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

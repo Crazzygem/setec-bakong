@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { getInvoice, settleInvoicePaid } from "@/lib/db";
 import { liveVerificationEnabled, verifyTxByMd5 } from "@/lib/bakong";
+import { QUOTA_ERROR_CODE, noteQuotaExhausted } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
-
-const QUOTA_ERROR_CODE = 17;
 
 /**
  * One Bakong lookup per click (staff button). Nothing calls this on a timer, because each
@@ -21,8 +20,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   const { paid, raw } = await verifyTxByMd5(inv.md5, { amount: inv.total, currency: inv.currency });
   const code = (raw as { errorCode?: unknown })?.errorCode;
-  if (code === QUOTA_ERROR_CODE)
+  if (code === QUOTA_ERROR_CODE) {
+    noteQuotaExhausted();
     return NextResponse.json({ error: "Bakong's daily check limit is used up. Use Confirm payment received instead." }, { status: 429 });
+  }
   if (!paid) return NextResponse.json({ status: "PENDING", paid: false });
   settleInvoicePaid(inv.id);
   return NextResponse.json({ status: "PAID", paid: true });

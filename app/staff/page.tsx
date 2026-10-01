@@ -722,37 +722,36 @@ function BillPanel({
 
   if (checkout.kind !== "idle") {
     return (
-      <div className="flex flex-1 flex-col p-5 md:p-6 lg:overflow-y-auto">
-        <h2 className="text-center text-base font-semibold">
-          {checkout.kind === "qr" ? "Guest scans to pay" : "Payment"}
-        </h2>
-        <div className="mt-4">
-          <KhqrPayment
-            key={checkout.invoiceId}
-            invoiceId={checkout.invoiceId}
-            onSettled={onSettled}
-            onCancel={onCancel}
-            canApprove
-          />
-        </div>
-        {checkout.kind === "settled" && (
-          <div className="mt-auto space-y-3 pt-6">
-            {canClose && (
-              <Button className="w-full" onClick={onClose} disabled={busy}>
-                Check out and close room
+      <KhqrPayment
+        key={checkout.invoiceId}
+        invoiceId={checkout.invoiceId}
+        onSettled={onSettled}
+        onCancel={onCancel}
+        staff
+        settledFooter={
+          checkout.kind === "settled" && (
+            <>
+              {canClose && (
+                <Button className="w-full" onClick={onClose} disabled={busy}>
+                  Check out and close room
+                </Button>
+              )}
+              {checkout.status === "EXPIRED" && detail.unbilledTotal > 0 && (
+                <Button className="w-full" onClick={onCharge} disabled={busy}>
+                  New KHQR for {money(converted.total, chargeCurrency)}
+                </Button>
+              )}
+              <Button
+                className="w-full"
+                variant={canClose || (checkout.status === "EXPIRED" && detail.unbilledTotal > 0) ? "secondary" : "primary"}
+                onClick={onDone}
+              >
+                Back to the bill
               </Button>
-            )}
-            {checkout.status === "EXPIRED" && detail.unbilledTotal > 0 && (
-              <Button className="w-full" onClick={onCharge} disabled={busy}>
-                New KHQR for {money(converted.total, chargeCurrency)}
-              </Button>
-            )}
-            <Button className="w-full" variant="secondary" onClick={onDone}>
-              Back to the bill
-            </Button>
-          </div>
-        )}
-      </div>
+            </>
+          )
+        }
+      />
     );
   }
 

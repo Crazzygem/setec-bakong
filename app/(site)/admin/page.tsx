@@ -51,11 +51,12 @@ interface BookingH {
   room_code: string;
 }
 
-type Tab = "rooms" | "menu" | "history";
+type Tab = "rooms" | "menu" | "history" | "settings";
 const TABS: { id: Tab; label: string }[] = [
   { id: "rooms", label: "Rooms" },
   { id: "menu", label: "Menu" },
   { id: "history", label: "History" },
+  { id: "settings", label: "Settings" },
 ];
 
 const bookingStatus: Record<BookingH["status"], string> = {
@@ -431,6 +432,110 @@ function MenuDialog({
   );
 }
 
+interface PaymentSettings {
+  autoCheck: boolean;
+  tokenSet: boolean;
+  quotaBlocked: boolean;
+  gapSeconds: number;
+}
+
+/** Opt-in switch for asking Bakong about open QRs on its own. Off by default: Bakong allows 100 checks a day. */
+function PaymentSettingsSection() {
+  const [settings, setSettings] = useState<PaymentSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((x) => (x.ok ? x.json() : Promise.reject()))
+      .then(setSettings)
+      .catch(() => setError("Settings could not load. Refresh the page to try again."));
+  }, []);
+
+  async function toggle(next: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ autoCheck: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) setError(data.error ?? "That did not save. Try again.");
+      else setSettings(data);
+    } catch {
+      setError("No connection to the server. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const perQr = settings ? Math.floor(300 / settings.gapSeconds) : 10;
+
+  return (
+    <section aria-label="Settings" className="mt-6 max-w-2xl">
+      <h2 className="text-xl font-semibold">Payment checking</h2>
+      {error && (
+        <div className="mt-4">
+          <Notice tone="error">{error}</Notice>
+        </div>
+      )}
+      {!settings && !error && <p className="mt-3 text-muted">Loading settings…</p>}
+      {settings && (
+        <div className="mt-4 rounded-md border border-hairline p-5">
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <p id="auto-check-label" className="font-semibold">
+                Check Bakong automatically
+              </p>
+              <p className="mt-1 text-sm text-body">
+                While a QR is open, ask Bakong every {settings.gapSeconds} seconds and mark the bill paid as soon
+                as the transfer shows up.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.autoCheck}
+              aria-labelledby="auto-check-label"
+              disabled={saving || (!settings.tokenSet && !settings.autoCheck)}
+              onClick={() => toggle(!settings.autoCheck)}
+              className={`relative mt-0.5 h-8 w-14 shrink-0 rounded-full border-2 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                settings.autoCheck ? "border-ink bg-ink" : "border-field bg-canvas"
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`absolute top-0.5 h-5 w-5 rounded-full transition-all ${
+                  settings.autoCheck ? "left-[26px] bg-canvas" : "left-0.5 bg-field"
+                }`}
+              />
+              <span className="sr-only">{settings.autoCheck ? "On" : "Off"}</span>
+            </button>
+          </div>
+          <p className="mt-4 border-t border-hairline-soft pt-4 text-sm text-muted">
+            Bakong allows 100 checks per day. A QR that stays open for its full five minutes uses up to {perQr}, so
+            a busy day can run out. When it does, automatic checks stop until midnight, and the staff screen keeps
+            its <span className="text-body">Check payment with Bakong</span> and{" "}
+            <span className="text-body">Confirm payment received</span> buttons.
+          </p>
+          {!settings.tokenSet && (
+            <p className="mt-3 text-sm text-error">
+              BAKONG_TOKEN is not set, so automatic checks are unavailable.
+            </p>
+          )}
+          {settings.autoCheck && settings.quotaBlocked && (
+            <p className="mt-3 text-sm text-error">
+              Bakong&apos;s daily limit is used up. Automatic checks are paused until midnight.
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function AdminPage() {
   const money = useMoney();
   const [tab, setTab] = useState<Tab>("rooms");
@@ -721,6 +826,8 @@ export default function AdminPage() {
           </div>
         </section>
       )}
+
+      {tab === "settings" && <PaymentSettingsSection />}
     </div>
   );
 }

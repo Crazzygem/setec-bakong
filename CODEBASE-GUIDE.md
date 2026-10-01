@@ -98,21 +98,22 @@ Bakong_payment/
 │   │   │   └── room-client.tsx  The interactive part: menu, tab, pay
 │   │   └── pay/[invoiceId]/     Standalone payment page
 │   ├── staff/page.tsx           /staff alias outside the group
-│   └── api/                     18 route handlers
+│   └── api/                     25 route handlers
 │       ├── rooms/                list, create, by-code, patch, mark ready
 │       ├── menu/                 list, create, patch
 │       ├── bookings/             create, read, items, invoices, close, cancel
-│       ├── invoices/             list, read, check, approve, cancel
+│       ├── invoices/             list, read, check, verify, approve, cancel
+│       ├── settings/             read and switch auto-check (admin)
 │       └── khqr/                 test, decode, check
 ├── components/
 │   ├── ui.tsx                   Button, Field, Notice, Wordmark, status label
 │   ├── currency.tsx             Context carrying SHOP_CURRENCY to the client
-│   ├── khqr-payment.tsx         The QR, the countdown, the status poll, the staff approve button
+│   ├── khqr-payment.tsx         The QR, the countdown, the status poll; staff footer actions
 │   └── site-header.tsx          Header and footer
 └── lib/
     ├── emv.ts                   TLV parse, CRC-16, static → dynamic rewrite
     ├── bakong.ts                QR generation, decoding, md5 verification
-    ├── payments.ts              Invoice JSON shape
+    ├── payments.ts              Invoice JSON, opt-in auto-check throttle
     ├── db.ts                    Schema, seed, migration, all SQL (571 lines)
     ├── money.ts                 Minor units, parsing, formatting
     ├── shop.ts                  Reads SHOP_CURRENCY
@@ -437,21 +438,28 @@ Files: `app/api/invoices/[id]/verify/route.ts`, `approve/route.ts`, `check/route
 Payments are confirmed by staff, and nothing asks Bakong on a timer. The staff
 screen has **Check payment with Bakong** (`verify`: one `verifyTxByMd5` call per
 click, settles if paid, a friendly message on error 17) and **Confirm payment
-received** (`approve`, no lookup). The second is the one described next (`KhqrPayment` with `canApprove`, which only
-`app/staff/page.tsx` sets). It asks for a browser confirm, then POSTs
+received** (`approve`, no lookup). The second is the one described next (`KhqrPayment` with `staff`, which only
+`app/staff/page.tsx` sets; its actions sit in a footer under a rule, like the bill panel). It asks for a browser confirm, then POSTs
 `/api/invoices/{id}/approve`, which refuses an invoice that is not `PENDING` or
 has passed its TTL and otherwise calls `settleInvoicePaid`.
 
-The browser still polls `/check` every 3 seconds, but `/check` reads only the
-local database and marks the invoice `EXPIRED` at its TTL. It never calls
-Bakong, so polling is free.
+The browser still polls `/check` every 3 seconds, and `/check` marks the invoice
+`EXPIRED` at its TTL. With auto-check off it reads only the local database, so
+polling is free.
 
-**Why not check Bakong automatically?** The first version did, through
-`verifyTxByMd5` and a throttle (one call per invoice every 15 seconds, backing
-off on error 17 until midnight in Phnom Penh). Bakong's Open API allows **100
-md5 checks per token per day**, and it ran out without confirming a single
-payment. The throttle, the quota backoff and the demo Simulate button are gone;
-Confirm payment received replaces all three.
+**Auto-check is opt-in.** Admin > Settings > *Check Bakong automatically* stores
+`auto_check` in the `meta` table (`getSetting` / `setSetting` in `lib/db.ts`, via
+`/api/settings`). When it is on, `/check` calls `settleIfPaid` in
+`lib/payments.ts`: one `verifyTxByMd5` per invoice per 30 seconds (the map is on
+`globalThis`, so every screen polling the same invoice shares one throttle), one
+forced look at expiry, and on error 17 `noteQuotaExhausted` blocks lookups until
+midnight in Phnom Penh. The staff footer then swaps the Check button for a status
+line and the Confirm button becomes primary.
+
+**Why off by default?** Bakong's Open API allows **100 md5 checks per token per
+day**. The first version always polled it at a 15 second gap and ran out without
+confirming a single payment, so cancel, re-billing and booking cancel no longer
+look anything up in either mode, and the demo Simulate button is gone.
 
 `verifyTxByMd5` is used only by the Check button and `/admin/khqr-test`. It checks amount and currency and deliberately does **not**
 compare `toAccountId`, because a bank sub-account can settle through a bridge
@@ -609,7 +617,8 @@ total, and the total stops being true as soon as the guest adds more.
 **What if the guest pays at 4:59?**
 Staff have to press Confirm payment received before the five minutes end. After
 that the invoice is `EXPIRED` and the approve route refuses it, so staff make a
-new QR. There is no automatic lookup to rescue a late payment.
+new QR. With auto-check on, `/check` also makes one last Bakong lookup at expiry,
+which rescues a payment made at 4:59; with it off, nothing does.
 
 ### About the code
 
@@ -677,7 +686,7 @@ out.
 |---|---|
 | **No authentication at all** | There is no login anywhere. `/admin` and `/staff` are open to anyone who reaches the server. The fix is a session guard on those routes, and it should be done before any public deploy. |
 | **No automated tests** | Only `tsc` and `eslint` run in CI terms. The pure functions in `lib/emv.ts` and `lib/money.ts` are the easiest to test first. |
-| **Manual payment confirmation** | Bakong's 100-checks-per-day quota ran out with automatic confirmation, so staff confirm by hand. The button has no login and trusts the staff member. A real system needs a webhook or a bulk reconciliation, which this public API does not offer. |
+| **Manual payment confirmation** | Bakong's 100-checks-per-day quota ran out with always-on automatic confirmation, so staff confirm by hand unless an admin turns auto-check on. The button has no login and trusts the staff member. A real system needs a webhook or a bulk reconciliation, which this public API does not offer. |
 | **`/admin` is public** | Same as the first row. Room rates, menu prices and booking history are all readable. |
 | **SQLite** | Fine for one cinema. For many simultaneous users, move to PostgreSQL. `lib/db.ts` is the only file to change. |
 | **One bill per booking, one currency** | Staff can charge in either riel or dollars, but a booking is settled by one invoice in one currency. There is no part-payment, and a booking whose unbilled lines span two currencies is refused. |
