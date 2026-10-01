@@ -160,15 +160,23 @@ passed its TTL.
 The browser polls `/api/invoices/[id]/check` every 3 seconds, and ticks a
 1-second local timer purely for the countdown display. `/check` reads the local
 database only: it reports the status and marks the invoice `EXPIRED` once the TTL
-passes. It never calls Bakong, so polling is free.
+passes. With auto-check off (the default) it never calls Bakong, so polling is free.
 
-This replaced automatic confirmation. The old version called Bakong's
-`check_transaction_by_md5` on every poll (throttled to one call per invoice every
-15 seconds) and still used up the API's 100-checks-per-token-per-day limit without
-confirming a payment. Cancel, expiry and re-billing no longer look anything up either.
+Auto-check is an opt-in setting stored in the `meta` table (`auto_check`), switched from
+Admin > Settings through `GET/PUT /api/settings`, so it changes without a restart. When it
+is on and `BAKONG_TOKEN` is set, `/check` calls `settleIfPaid` in `lib/payments.ts`:
 
-`verifyTxByMd5` is used only by the Check button and the `/admin/khqr-test` page; each
-click costs one call. It checks amount and currency
+- one lookup per invoice per `AUTO_GAP_MS` (30 s), kept in a map on `globalThis`, so a staff
+  screen and a guest phone polling the same invoice cost one call, not two
+- one forced lookup at expiry, so a payment made at 4:59 still settles
+- on error code `17` (daily limit), `noteQuotaExhausted` blocks all lookups until midnight in
+  Phnom Penh (UTC+7), and the staff screen asks for a manual confirm instead
+
+A QR open for its full five minutes costs up to 10 calls of the 100 per day. The first
+version had no switch and a 15 second gap and ran out without confirming a payment, so
+cancel, re-billing and booking cancel no longer look anything up in either mode.
+
+`verifyTxByMd5` is used by the Check button, auto-check and the `/admin/khqr-test` page. It checks amount and currency
 and deliberately does not compare `toAccountId`, because a bank sub-account can settle
 through a bridge account.
 
@@ -218,9 +226,9 @@ likely thing to be flagged in review. Present it as known scope for a class
 project, and put it behind a private network or an access proxy before any
 public deploy.
 
-**Payments are confirmed by hand.** The Bakong API allows only 100 md5 checks per
-token per day, so automatic confirmation ran out of quota without confirming anything
-and was removed. The button has no authentication, like the rest of `/staff`, and
+**Payments are confirmed by hand unless an admin opts in to auto-check.** The Bakong API
+allows only 100 md5 checks per token per day, so an always-on automatic check ran out of
+quota without confirming anything. The button has no authentication, like the rest of `/staff`, and
 trusts the staff member. A production system would need a webhook or a bulk
 reconciliation, neither of which this public API offers here.
 

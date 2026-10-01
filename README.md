@@ -39,8 +39,8 @@ npm run dev
 
 Open http://localhost:3000. `.env.example` documents every variable.
 
-Payments are confirmed by staff, and the app never asks Bakong on its own. The staff
-screen has two buttons under the QR:
+Payments are confirmed by staff, and by default the app never asks Bakong on its own. The
+staff screen has two buttons under the QR:
 
 - **Check payment with Bakong** makes one Bakong lookup per click, like the test page,
   and marks the bill paid if Bakong has the transfer. It needs `BAKONG_TOKEN`.
@@ -48,6 +48,13 @@ screen has two buttons under the QR:
   the Bakong app. It works with no token, and when the daily limit is used up.
 
 The guest's screen flips to paid once staff confirm.
+
+**Admin > Settings > Check Bakong automatically** is an opt-in switch, off by default. When
+it is on, the app asks Bakong about each open QR every 30 seconds and marks the bill paid by
+itself, plus one last look when the QR expires. Bakong allows 100 checks per day, and a QR
+open for its full five minutes uses up to 10, so a busy day can run out. At that point
+automatic checks pause until midnight and the staff screen asks for a manual confirm. The
+switch needs `BAKONG_TOKEN`.
 
 ## Charging in riel or dollars
 
@@ -94,9 +101,10 @@ Two details worth knowing before you debug a QR that will not scan:
   rejects a KHR QR at account inquiry, which looks like a scan failure but is not.
 
 Invoice QRs expire after five minutes, so confirm within that window. The browser polls
-`/check` every three seconds, but that reads only the local database. It never calls
-Bakong. An earlier version checked Bakong automatically, and its 100-checks-per-token-per-day
-limit ran out without confirming a single payment. Now only the Check button spends one.
+`/check` every three seconds, but that reads only the local database unless auto-check is
+switched on, and then the server still asks Bakong at most once per invoice every 30 seconds.
+An earlier version checked Bakong on every poll with no switch, and its 100-checks-per-token-per-day
+limit ran out without confirming a single payment.
 
 ## Deployment
 
