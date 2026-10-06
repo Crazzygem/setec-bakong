@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMoney, useShopCurrency } from "@/components/currency";
-import { KhqrPayment } from "@/components/khqr-payment";
+import { KhqrPayment, PaymentLoading } from "@/components/khqr-payment";
 import {
   Button,
   Field,
@@ -89,6 +89,7 @@ export default function StaffPos() {
   const [name, setName] = useState("");
   const [hours, setHours] = useState(2);
   const [busy, setBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -228,14 +229,19 @@ export default function StaffPos() {
 
   async function charge() {
     if (!detail?.booking) return;
-    const data = await run(() =>
-      postJson(`/api/bookings/${detail.booking!.id}/invoices`, {
-        currency: chargeCurrency ?? shop,
-      }),
-    );
-    const inv = data?.invoice as { id: string } | undefined;
-    if (inv) setCheckout({ kind: "qr", invoiceId: inv.id });
-    else await refreshDetail();
+    setGenerating(true);
+    try {
+      const data = await run(() =>
+        postJson(`/api/bookings/${detail.booking!.id}/invoices`, {
+          currency: chargeCurrency ?? shop,
+        }),
+      );
+      const inv = data?.invoice as { id: string } | undefined;
+      if (inv) setCheckout({ kind: "qr", invoiceId: inv.id });
+      else await refreshDetail();
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function closeRoom() {
@@ -263,8 +269,8 @@ export default function StaffPos() {
     const paid = (data.paid as { total: number; currency: Currency }[]) ?? [];
     setNotice(
       paid.length > 0
-        ? `Booking cancelled. ${paid.map((p) => money(p.total, p.currency)).join(" and ")} was already paid by KHQR: refund it to the customer by hand.`
-        : `Booking cancelled. ${detail.room.code} is free again.`,
+        ? `Booking cancelled. ${paid.map((p) => money(p.total, p.currency)).join(" and ")} was already paid by KHQR. Refund this amount to the guest manually.`
+        : `Booking cancelled. ${detail.room.code} is available again.`,
     );
     await Promise.all([refreshDetail(), loadRooms()]);
   }
@@ -273,7 +279,7 @@ export default function StaffPos() {
     if (!detail) return;
     if (!(await run(() => postJson(`/api/rooms/${detail.room.id}/ready`))))
       return;
-    setNotice(`${detail.room.code} is free for the next guest.`);
+    setNotice(`${detail.room.code} is available for the next guest.`);
     await Promise.all([refreshDetail(), loadRooms()]);
   }
 
@@ -302,7 +308,7 @@ export default function StaffPos() {
           <Wordmark />
           <span className="hidden truncate text-sm text-muted md:inline">
             Counter
-            {rooms ? ` · ${freeCount} of ${rooms.length} rooms free` : ""}
+            {rooms ? ` · ${freeCount} of ${rooms.length} rooms available` : ""}
           </span>
         </div>
         <nav
@@ -401,8 +407,7 @@ export default function StaffPos() {
             {!selectedId && (
               <div className="grid min-h-48 place-items-center text-center lg:h-full">
                 <p className="max-w-xs text-body">
-                  Pick a room to check a guest in, add to their bill, or take
-                  payment.
+                  Select a room to check in a guest, add charges, or collect payment.
                 </p>
               </div>
             )}
@@ -428,7 +433,7 @@ export default function StaffPos() {
                         ? detail!.booking!.customer_name
                         : room.status === "CLEANING"
                           ? "Needs cleaning"
-                          : "Free"}
+                          : "Available"}
                     </h1>
                     {occupied && (
                       <p className="mt-1 text-sm text-body">
@@ -462,7 +467,7 @@ export default function StaffPos() {
                     className="text-sm font-medium text-muted"
                     id="hours-label"
                   >
-                    Hours
+                    Booking duration
                   </p>
                   <div
                     className="mt-1 flex items-center gap-3"
@@ -507,8 +512,7 @@ export default function StaffPos() {
                   Check in {name.trim() || "walk-in guest"}
                 </Button>
                 <p className="text-sm text-muted">
-                  The room hours go on the bill. Take payment from the bill
-                  panel.
+                  Room charges are added to the bill. Generate a payment QR from the bill panel.
                 </p>
               </section>
             )}
@@ -516,8 +520,7 @@ export default function StaffPos() {
             {room?.status === "CLEANING" && (
               <section className="mt-6 max-w-md" aria-label="Cleaning">
                 <p className="text-body">
-                  The last guest has checked out. Free the room once it is
-                  clean.
+                  The last guest has checked out. Mark the room available once cleaning is complete.
                 </p>
                 <Button
                   className="mt-5"
@@ -525,7 +528,7 @@ export default function StaffPos() {
                   onClick={markCleaned}
                   disabled={busy}
                 >
-                  Mark {room.code} clean and free
+                  Mark room available
                 </Button>
               </section>
             )}
@@ -535,8 +538,7 @@ export default function StaffPos() {
                 {qrOpen && (
                   <div className="mb-5">
                     <Notice>
-                      A KHQR is waiting for payment. Anything added now goes on
-                      the next bill.
+                      A payment request is active. New items will be added to the next bill.
                     </Notice>
                   </div>
                 )}
@@ -613,9 +615,9 @@ export default function StaffPos() {
                       </p>
                       <p className="mt-1 text-sm text-body">
                         Unpaid items are dropped, any open QR is closed, and{" "}
-                        {room!.code} becomes free.
+                        {room!.code} becomes available.
                         {paidSoFar.length > 0 &&
-                          " Money already paid by KHQR must be refunded by hand."}
+                          " Payments already received must be refunded manually."}
                       </p>
                       <div className="mt-4 flex flex-wrap gap-3">
                         <Button
@@ -624,7 +626,7 @@ export default function StaffPos() {
                           onClick={cancelBooking}
                           disabled={busy}
                         >
-                          Yes, cancel booking
+                          Cancel booking
                         </Button>
                         <Button
                           variant="secondary"
@@ -642,7 +644,7 @@ export default function StaffPos() {
                       size="sm"
                       onClick={() => setConfirmCancel(true)}
                     >
-                      Cancel this booking
+                      Cancel booking
                     </Button>
                   )}
                 </div>
@@ -659,6 +661,7 @@ export default function StaffPos() {
                 detail={detail!}
                 checkout={checkout}
                 busy={busy}
+                generating={generating}
                 chargeCurrency={chargeCurrency ?? shop}
                 onChargeCurrency={setChargeCurrency}
                 onCharge={charge}
@@ -686,6 +689,7 @@ function BillPanel({
   detail,
   checkout,
   busy,
+  generating,
   chargeCurrency,
   onChargeCurrency,
   onCharge,
@@ -698,6 +702,7 @@ function BillPanel({
   detail: Detail;
   checkout: Checkout;
   busy: boolean;
+  generating: boolean;
   chargeCurrency: Currency;
   onChargeCurrency: (c: Currency | null) => void;
   onCharge: () => void;
@@ -720,6 +725,8 @@ function BillPanel({
     chargeCurrency,
   );
 
+  if (generating) return <PaymentLoading staff />;
+
   if (checkout.kind !== "idle") {
     return (
       <KhqrPayment
@@ -733,12 +740,12 @@ function BillPanel({
             <>
               {canClose && (
                 <Button className="w-full" onClick={onClose} disabled={busy}>
-                  Check out and close room
+                  Check out guest
                 </Button>
               )}
               {checkout.status === "EXPIRED" && detail.unbilledTotal > 0 && (
                 <Button className="w-full" onClick={onCharge} disabled={busy}>
-                  New KHQR for {money(converted.total, chargeCurrency)}
+                  Generate new QR
                 </Button>
               )}
               <Button
@@ -746,7 +753,7 @@ function BillPanel({
                 variant={canClose || (checkout.status === "EXPIRED" && detail.unbilledTotal > 0) ? "secondary" : "primary"}
                 onClick={onDone}
               >
-                Back to the bill
+                Back to bill
               </Button>
             </>
           )
@@ -758,10 +765,10 @@ function BillPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex-1 p-5 md:p-6 lg:overflow-y-auto">
-        <h2 className="text-[21px] font-bold">Bill</h2>
+        <h2 className="text-[21px] font-bold">Current bill</h2>
         {unbilled.length === 0 ? (
           <p className="mt-3 text-sm text-muted">
-            Nothing to pay. Add snacks or hours and they appear here.
+            No outstanding charges. Added items and room hours appear here.
           </p>
         ) : (
           <ul className="mt-3 space-y-1 text-sm">
@@ -808,7 +815,7 @@ function BillPanel({
         {billed.length > 0 && (
           <details className="mt-5 text-sm">
             <summary className="min-h-11 cursor-pointer py-2 text-body">
-              Already paid ({billed.length})
+              Paid items ({billed.length})
             </summary>
             <ul className="space-y-1 text-muted">
               {billed.map((l) => (
@@ -825,12 +832,13 @@ function BillPanel({
       </div>
       <div className="space-y-3 border-t border-hairline p-5 md:p-6">
         <div className="flex items-baseline justify-between">
-          <span className="font-semibold">To pay</span>
+          <span className="font-semibold">Amount due</span>
           <span className="text-[28px] font-bold tabular-nums">
             {money(converted.total, chargeCurrency)}
           </span>
         </div>
-        <div role="group" aria-label="Charge in" className="flex gap-2">
+        <p className="text-sm font-medium text-muted">Payment currency</p>
+        <div role="group" aria-label="Payment currency" className="flex gap-2">
           {(["KHR", "USD"] as Currency[]).map((c) => {
             const on = chargeCurrency === c;
             return (
@@ -856,7 +864,7 @@ function BillPanel({
           onClick={onCharge}
           disabled={busy || detail.unbilledTotal <= 0}
         >
-          Charge {money(converted.total, chargeCurrency)} with KHQR
+          Generate payment QR
         </Button>
         <Button
           className="w-full"
@@ -864,7 +872,7 @@ function BillPanel({
           onClick={onClose}
           disabled={busy || !canClose}
         >
-          Check out and close room
+          Check out guest
         </Button>
         {!canClose && detail.unbilledTotal > 0 && (
           <p className="text-center text-sm text-muted">

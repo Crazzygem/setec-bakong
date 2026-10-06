@@ -59,3 +59,55 @@ body {
     display: none !important;
   }
 }
+
+@keyframes payment-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes payment-qr-enter {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes payment-loading {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes payment-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+.payment-enter {
+  animation: payment-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.payment-qr-enter {
+  animation: payment-qr-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.payment-skeleton {
+  animation: payment-loading 1.4s ease-in-out infinite;
+}
+
+.payment-success-ring,
+.payment-success-check {
+  stroke-dasharray: 1;
+  animation: payment-draw 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.payment-success-check {
+  animation-delay: 120ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .payment-enter,
+  .payment-qr-enter,
+  .payment-skeleton,
+  .payment-success-ring,
+  .payment-success-check {
+    animation: none;
+  }
+}

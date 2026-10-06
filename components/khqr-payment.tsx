@@ -44,6 +44,41 @@ async function savePng(svgDataUri: string, filename: string) {
   a.click();
 }
 
+export function PaymentLoading({ staff = false }: { staff?: boolean }) {
+  return (
+    <div role="status" aria-busy="true" className={`payment-enter flex flex-1 flex-col ${staff ? "p-5 md:p-6" : "items-center py-6"}`}>
+      <p className="text-lg font-semibold">Generating payment QR…</p>
+      <p className="mt-1 text-sm text-muted">Preparing your payment request.</p>
+      <div aria-hidden="true" className="payment-skeleton mx-auto mt-6 flex aspect-square w-full max-w-[280px] items-center justify-center rounded-md bg-surface-soft">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="2" className="h-16 w-16 text-field">
+          <rect x="7" y="7" width="12" height="12" rx="1" />
+          <rect x="29" y="7" width="12" height="12" rx="1" />
+          <rect x="7" y="29" width="12" height="12" rx="1" />
+          <path d="M29 29h6v6h6M29 41h6M41 29v-5M24 7v12M7 24h12" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function PaymentSuccess({ amount, reference, staff }: { amount: string; reference: string; staff: boolean }) {
+  return (
+    <div role="status" className={`payment-enter ${staff ? "flex items-center gap-4" : "py-6 text-center"}`}>
+      <svg aria-hidden="true" viewBox="0 0 48 48" className={`payment-success h-12 w-12 shrink-0 ${staff ? "" : "mx-auto"}`}>
+        <circle className="payment-success-ring" cx="24" cy="24" r="22" fill="none" stroke="currentColor" strokeWidth="3" pathLength="1" />
+        <path className="payment-success-check" d="M14 25l7 7 13-15" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" pathLength="1" />
+      </svg>
+      <div className={staff ? "" : "mt-3"}>
+        <p className="text-lg font-semibold">Payment confirmed</p>
+        <p className="mt-1 text-[28px] font-bold leading-tight tabular-nums">{amount}</p>
+        <p className="mt-2 text-sm text-muted">
+          Reference <span className="font-medium text-ink tabular-nums">{reference}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /**
  * One dynamic KHQR invoice: shows the QR, counts down, and polls /check until staff confirm
  * the payment, auto-check finds it, or it expires. Key it by invoiceId so timers reset.
@@ -72,7 +107,8 @@ export function KhqrPayment({
   const [inv, setInv] = useState<Invoice | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<"approve" | "verify" | "cancel" | null>(null);
+  const busy = action !== null;
   const [notice, setNotice] = useState<string | null>(null);
   const [auto, setAuto] = useState(false);
   const [quotaBlocked, setQuotaBlocked] = useState(false);
@@ -98,6 +134,8 @@ export function KhqrPayment({
         return;
       }
       const data = await res.json();
+      setAuto(!!data.auto);
+      setQuotaBlocked(!!data.quotaBlocked);
       setInv(data.invoice);
       applyStatus(data.invoice.status);
     } catch {
@@ -139,7 +177,7 @@ export function KhqrPayment({
   }, [inv]);
 
   async function post(path: "approve" | "verify" | "cancel") {
-    setBusy(true);
+    setAction(path);
     setError(null);
     setNotice(null);
     try {
@@ -150,18 +188,20 @@ export function KhqrPayment({
         return;
       }
       if (path === "verify" && !data.paid) {
-        setNotice("Bakong has no payment for this QR yet. Try again in a moment.");
+        setNotice("Payment not yet verified. Try again shortly.");
         return;
       }
       applyStatus(data.status);
       if (path === "cancel" && data.status === "EXPIRED") onCancel?.();
+    } catch {
+      setError("Unable to complete this action. Check your connection and try again.");
     } finally {
-      setBusy(false);
+      setAction(null);
     }
   }
 
   if (error && !inv) return <p className="py-6 text-center text-sm text-error">{error}</p>;
-  if (!inv) return <p className="py-10 text-center text-sm text-muted">Preparing the KHQR…</p>;
+  if (!inv) return <PaymentLoading staff={staff} />;
 
   const amount = formatMoney(inv.total, inv.currency);
   const ref = inv.md5.slice(0, 8).toUpperCase();
@@ -170,44 +210,35 @@ export function KhqrPayment({
 
   if (staff) {
     const confirm = () => {
-      if (window.confirm(`Confirm you received ${amount} in the Bakong app?`)) post("approve");
+      if (window.confirm(`Mark this bill as paid? Confirm that you received ${amount} in your banking app before continuing.`)) post("approve");
     };
     const settled = inv.status !== "PENDING";
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex-1 p-5 md:p-6 lg:overflow-y-auto">
           {inv.status === "PAID" && (
-            <div role="status" className="flex items-center gap-4">
-              <svg aria-hidden viewBox="0 0 48 48" className="h-12 w-12 shrink-0">
-                <circle cx="24" cy="24" r="22" fill="none" stroke="currentColor" strokeWidth="3" />
-                <path d="M14 25l7 7 13-15" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <div>
-                <p className="text-lg font-semibold">Paid {amount}</p>
-                <p className="text-sm text-muted">
-                  Reference <span className="font-medium text-ink tabular-nums">{ref}</span>
-                </p>
-              </div>
-            </div>
+            <PaymentSuccess amount={amount} reference={ref} staff />
           )}
           {inv.status === "EXPIRED" && (
-            <div role="status">
-              <p className="text-lg font-semibold">This QR has closed</p>
-              <p className="mt-1 text-sm text-muted">No payment of {amount} arrived. Make a new QR to try again.</p>
+            <div role="status" className="payment-enter">
+              <p className="text-lg font-semibold">Payment request expired</p>
+              <p className="mt-1 text-sm text-muted">Verify receipt before generating a new QR.</p>
             </div>
           )}
           {!settled && (
-            <>
-              <p className="text-sm font-medium text-muted">Guest scans to pay</p>
+            <div className="payment-enter">
+              <h2 className="text-[21px] font-bold">Payment request</h2>
+              <p role="status" className="mt-1 text-sm text-muted">Awaiting payment</p>
+              <p className="mt-5 text-sm font-medium text-muted">Amount due</p>
               <div className="mt-1 flex items-baseline justify-between gap-4">
                 <p className="text-[28px] font-bold leading-tight tabular-nums">{amount}</p>
                 <p className="shrink-0 text-sm text-muted">
-                  Closes in{" "}
+                  Expires in{" "}
                   <span className={`font-semibold tabular-nums ${left < 60_000 ? "text-error" : "text-ink"}`}>{mmss(left)}</span>
                 </p>
               </div>
               {qrImg ? (
-                <img src={qrImg} alt={`KHQR code for ${amount}`} className="mx-auto mt-5 w-full max-w-[280px]" />
+                <img src={qrImg} alt={`KHQR code for ${amount}`} className="payment-qr-enter mx-auto mt-5 w-full max-w-[280px]" />
               ) : (
                 <p className="mt-5 font-mono text-xs break-all">{inv.qr}</p>
               )}
@@ -221,7 +252,7 @@ export function KhqrPayment({
                   {notice}
                 </p>
               )}
-            </>
+            </div>
           )}
         </div>
         <div className="space-y-2 border-t border-hairline p-5 md:p-6">
@@ -232,20 +263,21 @@ export function KhqrPayment({
               {auto ? (
                 <p role="status" className="pb-1 text-sm text-muted">
                   {quotaBlocked
-                    ? "Bakong's daily limit is used up. Confirm the payment yourself once you see it."
-                    : "Checking Bakong automatically. This closes on its own once the transfer arrives."}
+                    ? "Automatic verification is unavailable. Confirm receipt in your banking app before marking this bill as paid."
+                    : "Verifying payment automatically…"}
                 </p>
               ) : (
                 <Button className="w-full" onClick={() => post("verify")} disabled={busy}>
-                  Check payment with Bakong
+                  {action === "verify" ? "Verifying…" : "Verify payment"}
                 </Button>
               )}
               <Button className="w-full" variant={auto && quotaBlocked ? "primary" : "secondary"} onClick={confirm} disabled={busy}>
-                Confirm payment received
+                {action === "approve" ? "Recording payment…" : "Mark as paid"}
               </Button>
+              <p className="text-center text-xs text-muted">Use only after confirming receipt in your banking app.</p>
               {onCancel && (
                 <Button className="w-full" variant="tertiary" size="sm" onClick={() => post("cancel")} disabled={busy}>
-                  Cancel this QR
+                  {action === "cancel" ? "Cancelling…" : "Cancel payment request"}
                 </Button>
               )}
             </>
@@ -256,40 +288,29 @@ export function KhqrPayment({
   }
 
   if (inv.status === "PAID")
-    return (
-      <div className="py-6 text-center" role="status">
-        <svg aria-hidden viewBox="0 0 48 48" className="mx-auto h-12 w-12">
-          <circle cx="24" cy="24" r="22" fill="none" stroke="currentColor" strokeWidth="3" />
-          <path d="M14 25l7 7 13-15" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <p className="mt-3 text-lg font-semibold">Paid {amount}</p>
-        <p className="mt-1 text-sm text-muted">
-          Reference <span className="font-medium text-ink tabular-nums">{ref}</span>
-        </p>
-      </div>
-    );
+    return <PaymentSuccess amount={amount} reference={ref} staff={false} />;
 
   if (inv.status === "EXPIRED")
     return (
       <div className="py-6 text-center" role="status">
-        <p className="text-lg font-semibold">This QR has closed</p>
-        <p className="mt-1 text-sm text-muted">No payment of {amount} arrived. Make a new QR to try again.</p>
+        <p className="text-lg font-semibold">Payment request expired</p>
+        <p className="mt-1 text-sm text-muted">This QR is no longer active. Ask staff for a new payment request.</p>
       </div>
     );
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="payment-enter flex flex-col items-center">
       <p className="text-[28px] font-bold leading-tight tabular-nums">{amount}</p>
       {qrImg ? (
-        <img src={qrImg} alt={`KHQR code for ${amount}`} className="mt-4 w-full max-w-[280px]" />
+        <img src={qrImg} alt={`KHQR code for ${amount}`} className="payment-qr-enter mt-4 w-full max-w-[280px]" />
       ) : (
         <p className="mt-4 font-mono text-xs break-all">{inv.qr}</p>
       )}
       <p className="mt-4 text-center text-sm text-body">
-        Scan with any Cambodian bank app. Closes in{" "}
+        Scan with any Cambodian bank app. Expires in{" "}
         <span className={`font-semibold tabular-nums ${left < 60_000 ? "text-error" : "text-ink"}`}>{mmss(left)}</span>
       </p>
-      <p className="mt-1 text-center text-sm text-muted">This screen updates once the shop confirms your payment.</p>
+      <p className="mt-1 text-center text-sm text-muted">Your payment status updates here once confirmed.</p>
       {error && (
         <p role="alert" className="mt-3 text-sm text-error">
           {error}
@@ -299,10 +320,10 @@ export function KhqrPayment({
         <div className="mt-5 flex w-full max-w-[320px] flex-col gap-2">
           {qrImg && (
             <Button variant="secondary" onClick={() => savePng(qrImg, `khqr-${ref}.png`)}>
-              Save QR image
+              Download QR image
             </Button>
           )}
-          <p className="text-center text-sm text-muted">On this phone? Save the image, then pick it from your bank app&apos;s scan screen.</p>
+          <p className="text-center text-sm text-muted">Paying on this device? Download the QR image and select it in your banking app.</p>
         </div>
       )}
     </div>

@@ -15,14 +15,14 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   if (!inv) return NextResponse.json({ error: "not found" }, { status: 404 });
   if (inv.status === "PAID") return NextResponse.json({ status: "PAID", paid: true });
   if (inv.status !== "PENDING" || inv.expires_at <= Date.now())
-    return NextResponse.json({ error: "This QR is no longer waiting for payment. Make a new QR." }, { status: 409 });
+    return NextResponse.json({ error: "This payment request is no longer active. Generate a new QR." }, { status: 409 });
   if (!liveVerificationEnabled()) return NextResponse.json({ error: "BAKONG_TOKEN is not set." }, { status: 503 });
 
   const { paid, raw } = await verifyTxByMd5(inv.md5, { amount: inv.total, currency: inv.currency });
   const code = (raw as { errorCode?: unknown })?.errorCode;
   if (code === QUOTA_ERROR_CODE) {
     noteQuotaExhausted();
-    return NextResponse.json({ error: "Bakong's daily check limit is used up. Use Confirm payment received instead." }, { status: 429 });
+    return NextResponse.json({ error: "Payment verification is unavailable. Confirm receipt in your banking app before using Mark as paid." }, { status: 429 });
   }
   if (!paid) return NextResponse.json({ status: "PENDING", paid: false });
   settleInvoicePaid(inv.id);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getInvoice, getBooking, getRoomById } from "@/lib/db";
-import { invoiceJson } from "@/lib/payments";
+import { autoCheckEnabled, bakongQuotaExhausted, invoiceJson } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +11,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!inv) return NextResponse.json({ error: "not found" }, { status: 404 });
   const booking = getBooking(inv.booking_id);
   const room = booking ? getRoomById(booking.room_id) : null;
+  const auto = autoCheckEnabled();
   return NextResponse.json({
     invoice: invoiceJson(inv),
+    auto,
+    quotaBlocked: auto && bakongQuotaExhausted(),
     room: room ? { code: room.code, name: room.name } : null,
   });
 }

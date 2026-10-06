@@ -167,7 +167,7 @@ export type RoomStatus = "AVAILABLE" | "OCCUPIED" | "CLEANING";
 
 // Shape plus words, never colour alone: free is an outline ring, in use is filled.
 const statusStyle: Record<RoomStatus, { label: string; dot: string }> = {
-  AVAILABLE: { label: "Free", dot: "border-2 border-ink bg-canvas" },
+  AVAILABLE: { label: "Available", dot: "border-2 border-ink bg-canvas" },
   OCCUPIED: { label: "In use", dot: "bg-primary" },
   CLEANING: { label: "Cleaning", dot: "bg-field" },
 };
